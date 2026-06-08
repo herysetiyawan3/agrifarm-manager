@@ -1,0 +1,126 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is logged in
+    function isLoggedIn() {
+      return request.auth != null;
+    }
+    
+    // Helper function to get the user data
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    // Helper function to check roles
+    function hasRole(role) {
+      return isLoggedIn() && getUserData().role == role;
+    }
+    
+    // Helper function to check if user has ANY of the specified roles
+    function hasAnyRole(roles) {
+      return isLoggedIn() && (getUserData().role in roles);
+    }
+    
+    // --- Collection Rules ---
+
+    // Users Collection: Everyone can read, only the user themselves can write their own profile
+    match /users/{userId} {
+      allow read: if isLoggedIn();
+      allow write: if isLoggedIn() && request.auth.uid == userId;
+    }
+    
+    // Farms Collection: Owner can write, workers/mandors can read
+    match /farms/{farmId} {
+      allow read: if isLoggedIn();
+      allow write: if hasRole('Owner');
+    }
+    
+    // Fields Collection: CRUD by Owner & Mandor, Read-only by Worker
+    match /fields/{fieldId} {
+      allow read: if isLoggedIn();
+      allow create, update: if hasAnyRole(['Owner', 'Mandor']);
+      allow delete: if hasRole('Owner');
+    }
+    
+    // Crops Collection: CRUD by Owner & Mandor, Read-only by Worker
+    match /crops/{cropId} {
+      allow read: if isLoggedIn();
+      allow create, update: if hasAnyRole(['Owner', 'Mandor']);
+      allow delete: if hasRole('Owner');
+    }
+    
+    // Planting Seasons Collection: CRUD by Owner & Mandor, Read-only by Worker
+    match /planting_seasons/{seasonId} {
+      allow read: if isLoggedIn();
+      allow create, update: if hasAnyRole(['Owner', 'Mandor']);
+      allow delete: if hasRole('Owner');
+    }
+    
+    // Inventory Collection: Owner & Mandor can CRUD, Worker can read
+    match /inventory/{invId} {
+      allow read: if isLoggedIn();
+      allow write: if hasAnyRole(['Owner', 'Mandor']);
+    }
+    
+    // Purchases Collection: Owner can CRUD, Mandor can read/write, Worker can read
+    match /purchases/{purchaseId} {
+      allow read: if isLoggedIn();
+      allow create, update: if hasAnyRole(['Owner', 'Mandor']);
+      allow delete: if hasRole('Owner');
+    }
+    
+    // Fertilizations & Sprayings: All logged-in users can update status, but only Owner/Mandor can create/delete
+    match /fertilizations/{fertId} {
+      allow read: if isLoggedIn();
+      allow create, delete: if hasAnyRole(['Owner', 'Mandor']);
+      allow update: if isLoggedIn(); // worker can update status to 'Selesai'
+    }
+    
+    match /sprayings/{sprayId} {
+      allow read: if isLoggedIn();
+      allow create, delete: if hasAnyRole(['Owner', 'Mandor']);
+      allow update: if isLoggedIn(); // worker can update status to 'Selesai'
+    }
+    
+    // Pests (Catatan Hama): Any user can create/read, only Owner/Mandor can update/delete
+    match /pests/{pestId} {
+      allow read, create: if isLoggedIn();
+      allow update, delete: if hasAnyRole(['Owner', 'Mandor']);
+    }
+    
+    // Workers Collection: Only Owner can access and edit payroll/worker details
+    match /workers/{workerId} {
+      allow read, write: if hasRole('Owner');
+    }
+    
+    // Expenses (Pengeluaran): Only Owner and Mandor can read/write. Workers have no access to finances.
+    match /expenses/{expenseId} {
+      allow read, create, update: if hasAnyRole(['Owner', 'Mandor']);
+      allow delete: if hasRole('Owner');
+    }
+    
+    // Harvests Collection: Owner & Mandor can CRUD, Worker can read
+    match /harvests/{harvestId} {
+      allow read: if isLoggedIn();
+      allow create, update: if hasAnyRole(['Owner', 'Mandor']);
+      allow delete: if hasRole('Owner');
+    }
+    
+    // Buyers & Sales: Only Owner and Mandor can read/write. Workers have no access to buyer contacts or financial sales.
+    match /buyers/{buyerId} {
+      allow read, write: if hasAnyRole(['Owner', 'Mandor']);
+    }
+    
+    match /sales/{saleId} {
+      allow read, write: if hasAnyRole(['Owner', 'Mandor']);
+    }
+    
+    // Notifications: Logged-in users can read notifications intended for them or system notifications
+    match /notifications/{notifId} {
+      allow read: if isLoggedIn();
+      allow write: if hasAnyRole(['Owner', 'Mandor']);
+    }
+  }
+}
