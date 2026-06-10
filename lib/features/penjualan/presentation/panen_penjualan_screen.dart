@@ -26,7 +26,6 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
   String _panenSearchQuery = '';
   String _tengkulakSearchQuery = '';
   String _salesSearchQuery = '';
-  double _perkiraanPanen = 25.0;
 
   // Tengkulak controllers
   final _buyerNameController = TextEditingController();
@@ -47,7 +46,6 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
   String? _selectedBuyerId;
   DateTime _date = DateTime.now();
   String _salesStatus = 'Lunas';
-  String _gradeMode = 'A';
 
   @override
   void initState() {
@@ -77,6 +75,387 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
     super.dispose();
   }
 
+
+  double getAlreadyHarvestedPercentage(String seasonId, String? currentHarvestId, List<Panen> harvests) {
+    double total = 0.0;
+    for (var h in harvests) {
+      if (h.seasonId == seasonId && h.id != currentHarvestId) {
+        total += h.perkiraanPanen;
+      }
+    }
+    return total;
+  }
+
+  void _showGradeBreakdownDialog(BuildContext context, double gA, double gB, double gC) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Rincian Berat Per Grade'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: const Text('Grade A'),
+                trailing: Text('${gA.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')} Kg'),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                title: const Text('Grade B'),
+                trailing: Text('${gB.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')} Kg'),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                title: const Text('Grade C'),
+                trailing: Text('${gC.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')} Kg'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Tutup'),
+            )
+          ],
+        );
+      },
+    );
+  }
+
+  void _showTengkulakSearchDialog(
+      BuildContext context,
+      List<Tengkulak> buyers,
+      Function(Tengkulak) onSelected,
+      Function(String) onAddNew) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        String searchQ = '';
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final query = searchQ.toLowerCase().trim();
+            final filtered = buyers.where((b) {
+              return b.name.toLowerCase().contains(query);
+            }).toList();
+            
+            final exactMatch = buyers.any((b) => b.name.toLowerCase() == query);
+
+            return AlertDialog(
+              title: const Text('Pilih Tengkulak'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Cari nama tengkulak...',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          searchQ = val;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 250),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: filtered.length + (!exactMatch && searchQ.isNotEmpty ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (index == filtered.length) {
+                            return ListTile(
+                              leading: const Icon(Icons.add_circle_outline, color: Colors.green),
+                              title: Text('+ Tambah Tengkulak Baru "$searchQ"', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                              onTap: () {
+                                Navigator.pop(context);
+                                onAddNew(searchQ);
+                              },
+                            );
+                          }
+                          final buyer = filtered[index];
+                          return ListTile(
+                            leading: const Icon(Icons.person, color: Colors.grey),
+                            title: Text(buyer.name),
+                            onTap: () {
+                              Navigator.pop(context);
+                              onSelected(buyer);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Batal'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showQuickAddTengkulakDialog(
+      String initialName,
+      StateSetter setDialogState,
+      TextEditingController controller,
+      Function(String) onBuyerAdded) {
+    final nameController = TextEditingController(text: initialName);
+    final phoneController = TextEditingController();
+    final addressController = TextEditingController();
+    final quickFormKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Tambah Tengkulak Baru'),
+          content: Form(
+            key: quickFormKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Nama Tengkulak'),
+                    validator: (value) => value == null || value.isEmpty ? 'Nama wajib diisi' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Nomor HP (Opsional)'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: addressController,
+                    decoration: const InputDecoration(labelText: 'Alamat (Opsional)'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (!quickFormKey.currentState!.validate()) return;
+                
+                final newBuyer = Tengkulak(
+                  id: '',
+                  name: nameController.text.trim(),
+                  phone: phoneController.text.trim(),
+                  address: addressController.text.trim(),
+                  region: '',
+                  commodityBought: '',
+                  notes: '',
+                );
+
+                final newId = await ref.read(databaseRepositoryProvider).addBuyer(newBuyer);
+                
+                if (mounted) {
+                  Navigator.pop(context);
+                  setDialogState(() {
+                    _selectedBuyerId = newId;
+                    onBuyerAdded(newId);
+                    controller.text = newBuyer.name;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Tengkulak baru berhasil ditambahkan!'),
+                    backgroundColor: Colors.green,
+                  ));
+                }
+              },
+              child: const Text('Simpan'),
+            )
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmSelesaikanMusimTanam(MusimTanam season) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Selesaikan Musim Tanam?'),
+        content: Text('Apakah Anda yakin ingin menyelesaikan musim tanam "${season.name}"? Setelah diselesaikan, seluruh data musim tanam ini akan dikunci dan tidak dapat diubah kembali.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final updatedSeason = MusimTanam(
+                id: season.id,
+                name: season.name,
+                fieldId: season.fieldId,
+                cropId: season.cropId,
+                variety: season.variety,
+                plantingArea: season.plantingArea,
+                seedsCount: season.seedsCount,
+                seedingDate: season.seedingDate,
+                plantingDate: season.plantingDate,
+                status: 'Selesai',
+                jenisTanam: season.jenisTanam,
+              );
+              await ref.read(databaseRepositoryProvider).updateSeason(updatedSeason);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Musim tanam berhasil diselesaikan & dikunci!'),
+                  backgroundColor: Colors.green,
+                ));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green[800]),
+            child: const Text('Selesaikan'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSeasonProgressSection(List<MusimTanam> seasons, List<Panen> harvests, List<Lahan> fields) {
+    final activeSeasons = seasons
+        .where((s) => s.status == 'Berjalan' || s.status == 'Panen Sebagian' || s.status == 'Panen Selesai')
+        .toList();
+
+    if (activeSeasons.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      height: 175,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: activeSeasons.length,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemBuilder: (context, index) {
+          final season = activeSeasons[index];
+          
+          final double alreadyHarvested = harvests
+              .where((h) => h.seasonId == season.id)
+              .fold(0.0, (sum, h) => sum + h.perkiraanPanen);
+          final double sisaPanen = (100.0 - alreadyHarvested).clamp(0.0, 100.0);
+          final progress = (alreadyHarvested / 100.0).clamp(0.0, 1.0);
+          
+          final isCompleted = sisaPanen <= 0;
+          final statusText = isCompleted ? 'Panen Selesai' : 'Panen Sebagian';
+          final badgeColor = isCompleted ? Colors.green[800] : Colors.orange[800];
+          final badgeBg = isCompleted ? Colors.green[50] : Colors.orange[50];
+
+          final fieldIds = season.fieldId.split(',').map((e) => e.trim()).toList();
+          final seasonFieldNames = fields
+              .where((f) => fieldIds.contains(f.id) || fieldIds.contains(f.name))
+              .map((f) => f.name)
+              .join(', ');
+
+          return Container(
+            width: 320,
+            margin: const EdgeInsets.only(right: 12),
+            child: Card(
+              elevation: 3,
+              shadowColor: Colors.black26,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            season.name,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: badgeBg,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: badgeColor!.withOpacity(0.3)),
+                          ),
+                          child: Text(
+                            statusText,
+                            style: TextStyle(
+                              color: badgeColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Lahan: ${seasonFieldNames.isNotEmpty ? seasonFieldNames : "-"}',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const Spacer(),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Sudah: ${alreadyHarvested.toInt()}%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                        Text('Sisa: ${sisaPanen.toInt()}%', style: TextStyle(fontSize: 12, color: Colors.orange[900], fontWeight: FontWeight.w500)),
+                        const Text('Target: 100%', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 8,
+                        backgroundColor: Colors.grey[200],
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.green[800]!),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (isCompleted && season.status != 'Selesai')
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () => _confirmSelesaikanMusimTanam(season),
+                          icon: const Icon(Icons.check_circle_outline, size: 16, color: Colors.green),
+                          label: const Text('Selesaikan Musim Tanam', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green)),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _resetPanenForm() {
     _weightController.clear();
     _gradeAController.clear();
@@ -93,9 +472,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
       _selectedSeasonId = null;
       _selectedBuyerId = null;
       _date = DateTime.now();
-      _gradeMode = 'A';
       _salesStatus = 'Lunas';
-      _perkiraanPanen = 25.0;
     });
   }
 
@@ -119,15 +496,25 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
     });
   }
 
-
-
-  void _showPanenDialog(List<MusimTanam> seasons, List<Lahan> fields, List<Tengkulak> buyers, {Panen? harvest}) {
+  void _showPanenDialog(
+      List<MusimTanam> seasons,
+      List<Lahan> fields,
+      List<Tengkulak> buyers,
+      List<Panen> harvests,
+      List<Tanaman> crops,
+      {Panen? harvest}) {
     _resetPanenForm();
+    
+    String? selectedSeasonId = harvest?.seasonId ?? (seasons.isNotEmpty ? seasons.first.id : null);
+    String? selectedFieldId = harvest?.fieldId;
+    String inputMethod = 'Pilihan Cepat';
+    String? selectedBuyerId = harvest?.buyerId ?? (buyers.isNotEmpty ? buyers.first.id : null);
+    DateTime date = harvest?.date ?? DateTime.now();
+    double perkiraanPanen = harvest?.perkiraanPanen ?? 0.0;
+    String salesStatus = 'Lunas';
+    
     if (harvest != null) {
-      _selectedSeasonId = harvest.seasonId;
-      _selectedBuyerId = harvest.buyerId;
       _weightController.text = harvest.weight.toString();
-      // Menggunakan field baru beratGradeA/B/C dengan fallback untuk data lama
       final gA = harvest.beratGradeA > 0 ? harvest.beratGradeA : harvest.gradeAWeight;
       final gB = harvest.beratGradeB > 0 ? harvest.beratGradeB : harvest.gradeBWeight;
       final gC = harvest.beratGradeC > 0 ? harvest.beratGradeC : harvest.gradeCWeight;
@@ -138,30 +525,26 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
       _priceAController.text = harvest.priceGradeA?.toString() ?? '';
       _priceBController.text = harvest.priceGradeB?.toString() ?? '';
       _priceCController.text = harvest.priceGradeC?.toString() ?? '';
-      _date = harvest.date;
-      _perkiraanPanen = harvest.perkiraanPanen;
+      date = harvest.date;
+      perkiraanPanen = harvest.perkiraanPanen;
       
-      // Determine grade mode based on values
-      if (gA > 0 && gB == 0 && gC == 0) {
-        _gradeMode = 'A';
-      } else if (gB > 0 && gA == 0 && gC == 0) {
-        _gradeMode = 'B';
-      } else if (gC > 0 && gA == 0 && gB == 0) {
-        _gradeMode = 'C';
+      if (perkiraanPanen == 25.0 || perkiraanPanen == 50.0 || perkiraanPanen == 75.0 || perkiraanPanen == 100.0) {
+        inputMethod = 'Pilihan Cepat';
       } else {
-        _gradeMode = 'Custom';
+        inputMethod = 'Persentase Manual';
       }
     } else {
-      if (seasons.isNotEmpty) {
-        _selectedSeasonId = seasons.first.id;
-      }
-      if (buyers.isNotEmpty) _selectedBuyerId = buyers.first.id;
-
       _weightController.text = '0';
       _gradeAController.text = '0';
       _gradeBController.text = '0';
       _gradeCController.text = '0';
-      _perkiraanPanen = 25.0;
+      perkiraanPanen = 0.0;
+    }
+
+    final TextEditingController buyerSearchController = TextEditingController();
+    if (selectedBuyerId != null) {
+      final b = buyers.firstWhere((element) => element.id == selectedBuyerId, orElse: () => Tengkulak(id: '', name: '', phone: '', address: '', region: '', commodityBought: '', notes: ''));
+      buyerSearchController.text = b.name;
     }
 
     showModalBottomSheet(
@@ -171,6 +554,38 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final selectedSeason = seasons.firstWhere((s) => s.id == selectedSeasonId, orElse: () => seasons.first);
+            
+            final alreadyHarvested = getAlreadyHarvestedPercentage(selectedSeason.id, harvest?.id, harvests);
+            final sisaPanen = (100.0 - alreadyHarvested).clamp(0.0, 100.0);
+
+            final List<double> quickOptions = [];
+            if (sisaPanen >= 25.0) quickOptions.add(25.0);
+            if (sisaPanen >= 50.0) quickOptions.add(50.0);
+            if (sisaPanen >= 75.0) quickOptions.add(75.0);
+            if (sisaPanen >= 100.0) quickOptions.add(100.0);
+
+            final fieldIds = selectedSeason.fieldId.split(',').map((id) => id.trim()).toList();
+            final seasonFields = fields.where((f) => fieldIds.contains(f.id) || fieldIds.contains(f.name)).toList();
+            if (seasonFields.isEmpty) {
+              seasonFields.add(Lahan(id: selectedSeason.fieldId, name: selectedSeason.fieldId, area: 0, unit: 'm²', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''));
+            }
+
+            if (selectedFieldId == null || !seasonFields.any((f) => f.id == selectedFieldId)) {
+              selectedFieldId = seasonFields.first.id;
+            }
+
+
+            final gradeA = double.tryParse(_gradeAController.text) ?? 0.0;
+            final gradeB = double.tryParse(_gradeBController.text) ?? 0.0;
+            final gradeC = double.tryParse(_gradeCController.text) ?? 0.0;
+            final totalWeight = gradeA + gradeB + gradeC;
+
+
+
+            final isOverLimit = perkiraanPanen > sisaPanen;
+            final canSave = !isOverLimit && perkiraanPanen > 0 && totalWeight > 0 && selectedBuyerId != null;
+
             return Padding(
               padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 24, left: 20, right: 20),
               child: SingleChildScrollView(
@@ -182,141 +597,192 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                     children: [
                       const Text('Catat Hasil Panen', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green), textAlign: TextAlign.center),
                       const SizedBox(height: 20),
+                      
                       DropdownButtonFormField<String>(
-                        value: _selectedSeasonId,
-                        decoration: const InputDecoration(labelText: 'Pilih Musim Tanam / Lahan', prefixIcon: Icon(Icons.spa)),
-                        items: seasons.where((s) => s.status != 'Selesai' || s.id == _selectedSeasonId).map((s) {
-                          final field = fields.firstWhere(
-                            (f) => f.id == s.fieldId,
-                            orElse: () => Lahan(id: '', name: 'Umum', area: 0, unit: 'm²', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''),
-                          );
-                          return DropdownMenuItem(value: s.id, child: Text("${s.name} (Lahan: ${field.name})"));
+                        value: selectedSeasonId,
+                        decoration: const InputDecoration(labelText: 'Musim Tanam', prefixIcon: Icon(Icons.spa)),
+                        items: seasons.where((s) => s.status != 'Selesai' || s.id == selectedSeasonId).map((s) {
+                          return DropdownMenuItem(value: s.id, child: Text(s.name));
                         }).toList(),
                         onChanged: (val) {
                           setDialogState(() {
-                            _selectedSeasonId = val;
+                            selectedSeasonId = val;
+                            selectedFieldId = null;
                           });
                         },
                         validator: (value) => value == null ? 'Musim tanam wajib dipilih' : null,
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _weightController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Total Berat (Kg) (Otomatis)', prefixIcon: Icon(Icons.scale)),
-                        enabled: false, // Total berat dihitung otomatis dari Grade A + B + C
+
+                      DropdownButtonFormField<String>(
+                        value: selectedFieldId,
+                        decoration: const InputDecoration(labelText: 'Pilih Lahan', prefixIcon: Icon(Icons.location_on)),
+                        items: seasonFields.map((f) {
+                          return DropdownMenuItem(value: f.id, child: Text(f.name));
+                        }).toList(),
+                        onChanged: (val) {
+                          setDialogState(() {
+                            selectedFieldId = val;
+                          });
+                        },
+                        validator: (value) => value == null ? 'Lahan wajib dipilih' : null,
                       ),
                       const SizedBox(height: 12),
-                      DropdownButtonFormField<double>(
-                        value: _perkiraanPanen,
-                        decoration: const InputDecoration(
-                          labelText: 'Perkiraan Hasil Panen (%)',
-                          prefixIcon: Icon(Icons.percent),
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 25.0, child: Text('25%')),
-                          DropdownMenuItem(value: 50.0, child: Text('50%')),
-                          DropdownMenuItem(value: 75.0, child: Text('75%')),
-                          DropdownMenuItem(value: 100.0, child: Text('100%')),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) {
-                            setDialogState(() {
-                              _perkiraanPanen = val;
-                            });
+
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.calendar_today, size: 16),
+                        label: Text('Tanggal Panen: ${Formatters.formatLongDate(date)}'),
+                        onPressed: () async {
+                          final d = await showDatePicker(context: context, initialDate: date, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                          if (d != null) {
+                            setDialogState(() => date = d);
                           }
                         },
                       ),
-                      const SizedBox(height: 12),
-                      const Text('Alokasi Kualitas (Grade):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
-                      const SizedBox(height: 6),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
+                      const SizedBox(height: 16),
+
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.green[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.green[100]!),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ChoiceChip(
-                              label: const Text('Semua Grade A'),
-                              selected: _gradeMode == 'A',
-                              selectedColor: Colors.green[800],
-                              labelStyle: TextStyle(
-                                color: _gradeMode == 'A' ? Colors.white : Colors.black87,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setDialogState(() {
-                                    _gradeMode = 'A';
-                                    _gradeBController.text = '0';
-                                    _gradeCController.text = '0';
-                                    final a = double.tryParse(_gradeAController.text) ?? 0.0;
-                                    _weightController.text = a == a.toInt() ? a.toInt().toString() : a.toString();
-                                  });
-                                }
-                              },
+                            const Text(
+                              'Ringkasan Progres Panen Musim Ini',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green),
                             ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              label: const Text('Semua Grade B'),
-                              selected: _gradeMode == 'B',
-                              selectedColor: Colors.green[800],
-                              labelStyle: TextStyle(
-                                color: _gradeMode == 'B' ? Colors.white : Colors.black87,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setDialogState(() {
-                                    _gradeMode = 'B';
-                                    _gradeAController.text = '0';
-                                    _gradeCController.text = '0';
-                                    final b = double.tryParse(_gradeBController.text) ?? 0.0;
-                                    _weightController.text = b == b.toInt() ? b.toInt().toString() : b.toString();
-                                  });
-                                }
-                              },
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Sudah Dipanen: ${alreadyHarvested.toInt()}%'),
+                                Text('Sisa Panen: ${sisaPanen.toInt()}%', style: TextStyle(color: Colors.orange[800], fontWeight: FontWeight.bold)),
+                                const Text('Target: 100%'),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              label: const Text('Semua Grade C'),
-                              selected: _gradeMode == 'C',
-                              selectedColor: Colors.green[800],
-                              labelStyle: TextStyle(
-                                color: _gradeMode == 'C' ? Colors.white : Colors.black87,
-                                fontWeight: FontWeight.bold,
+                            const SizedBox(height: 6),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: LinearProgressIndicator(
+                                value: (alreadyHarvested + perkiraanPanen) / 100.0,
+                                minHeight: 8,
+                                backgroundColor: Colors.grey[200],
+                                valueColor: AlwaysStoppedAnimation<Color>(isOverLimit ? Colors.red : Colors.green),
                               ),
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setDialogState(() {
-                                    _gradeMode = 'C';
-                                    _gradeAController.text = '0';
-                                    _gradeBController.text = '0';
-                                    final c = double.tryParse(_gradeCController.text) ?? 0.0;
-                                    _weightController.text = c == c.toInt() ? c.toInt().toString() : c.toString();
-                                  });
-                                }
-                              },
                             ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              label: const Text('Kustom (A/B/C)'),
-                              selected: _gradeMode == 'Custom',
-                              selectedColor: Colors.green[800],
-                              labelStyle: TextStyle(
-                                color: _gradeMode == 'Custom' ? Colors.white : Colors.black87,
-                                fontWeight: FontWeight.bold,
+                            if (perkiraanPanen > 0) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                'Rencana Input Kali Ini: +$perkiraanPanen% (Total: ${(alreadyHarvested + perkiraanPanen).toStringAsFixed(1)}%)',
+                                style: TextStyle(color: isOverLimit ? Colors.red : Colors.green[800], fontSize: 12, fontWeight: FontWeight.w500),
                               ),
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setDialogState(() {
-                                    _gradeMode = 'Custom';
-                                  });
-                                }
-                              },
-                            ),
+                            ]
                           ],
                         ),
                       ),
+                      const SizedBox(height: 16),
+
+                      const Text('Metode Input Panen:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ChoiceChip(
+                              label: const Text('Pilihan Cepat', style: TextStyle(fontSize: 12)),
+                              selected: inputMethod == 'Pilihan Cepat',
+                              selectedColor: Colors.green[800],
+                              labelStyle: TextStyle(
+                                color: inputMethod == 'Pilihan Cepat' ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              onSelected: (selected) {
+                                if (selected) {
+                                  setDialogState(() {
+                                    inputMethod = 'Pilihan Cepat';
+                                    if (quickOptions.isNotEmpty) {
+                                      perkiraanPanen = quickOptions.first;
+                                    } else {
+                                      perkiraanPanen = 0.0;
+                                    }
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ChoiceChip(
+                              label: const Text('Persentase Manual', style: TextStyle(fontSize: 12)),
+                              selected: inputMethod == 'Persentase Manual',
+                              selectedColor: Colors.green[800],
+                              labelStyle: TextStyle(
+                                color: inputMethod == 'Persentase Manual' ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              onSelected: (selected) {
+                                if (selected) {
+                                  setDialogState(() {
+                                    inputMethod = 'Persentase Manual';
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
+
+                      if (inputMethod == 'Pilihan Cepat') ...[
+                        if (quickOptions.isEmpty)
+                          const Text('Sisa panen kurang dari 25%. Silakan gunakan Persentase Manual.', style: TextStyle(color: Colors.orange, fontSize: 12))
+                        else
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: quickOptions.map((opt) {
+                              final isSelected = perkiraanPanen == opt;
+                              return ChoiceChip(
+                                label: Text('${opt.toInt()}%'),
+                                selected: isSelected,
+                                selectedColor: Colors.green[800],
+                                labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
+                                onSelected: (sel) {
+                                  if (sel) {
+                                    setDialogState(() {
+                                      perkiraanPanen = opt;
+                                    });
+                                  }
+                                },
+                              );
+                            }).toList(),
+                          ),
+                      ] else if (inputMethod == 'Persentase Manual') ...[
+                        TextFormField(
+                          initialValue: perkiraanPanen > 0 ? perkiraanPanen.toString() : '',
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(labelText: 'Persentase Panen (%)', prefixIcon: Icon(Icons.percent)),
+                          onChanged: (val) {
+                            setDialogState(() {
+                              perkiraanPanen = double.tryParse(val) ?? 0.0;
+                            });
+                          },
+                        ),
+                      ],
+
+                      if (isOverLimit) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Persentase panen melebihi sisa panen yang tersedia.\nSisa panen saat ini: ${sisaPanen.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')}%',
+                          style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+
+                      const Text('Grade Panen:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
                           Expanded(
@@ -324,21 +790,10 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                               controller: _gradeAController,
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(labelText: 'Grade A (Kg)', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-                              enabled: _gradeMode == 'A' || _gradeMode == 'Custom',
                               onTap: () {
-                                if (_gradeAController.text == '0') {
-                                  _gradeAController.clear();
-                                }
+                                if (_gradeAController.text == '0') _gradeAController.clear();
                               },
-                              onChanged: (val) {
-                                final a = double.tryParse(val) ?? 0.0;
-                                final b = double.tryParse(_gradeBController.text) ?? 0.0;
-                                final c = double.tryParse(_gradeCController.text) ?? 0.0;
-                                final total = a + b + c;
-                                setDialogState(() {
-                                  _weightController.text = total == total.toInt() ? total.toInt().toString() : total.toString();
-                                });
-                              },
+                              onChanged: (val) => setDialogState(() {}),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -347,21 +802,10 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                               controller: _gradeBController,
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(labelText: 'Grade B (Kg)', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-                              enabled: _gradeMode == 'B' || _gradeMode == 'Custom',
                               onTap: () {
-                                if (_gradeBController.text == '0') {
-                                  _gradeBController.clear();
-                                }
+                                if (_gradeBController.text == '0') _gradeBController.clear();
                               },
-                              onChanged: (val) {
-                                final a = double.tryParse(_gradeAController.text) ?? 0.0;
-                                final b = double.tryParse(val) ?? 0.0;
-                                final c = double.tryParse(_gradeCController.text) ?? 0.0;
-                                final total = a + b + c;
-                                setDialogState(() {
-                                  _weightController.text = total == total.toInt() ? total.toInt().toString() : total.toString();
-                                });
-                              },
+                              onChanged: (val) => setDialogState(() {}),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -370,99 +814,133 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                               controller: _gradeCController,
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(labelText: 'Grade C (Kg)', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-                              enabled: _gradeMode == 'C' || _gradeMode == 'Custom',
                               onTap: () {
-                                if (_gradeCController.text == '0') {
-                                  _gradeCController.clear();
-                                }
+                                if (_gradeCController.text == '0') _gradeCController.clear();
                               },
-                              onChanged: (val) {
-                                final a = double.tryParse(_gradeAController.text) ?? 0.0;
-                                final b = double.tryParse(_gradeBController.text) ?? 0.0;
-                                final c = double.tryParse(val) ?? 0.0;
-                                final total = a + b + c;
-                                setDialogState(() {
-                                  _weightController.text = total == total.toInt() ? total.toInt().toString() : total.toString();
-                                });
-                              },
+                              onChanged: (val) => setDialogState(() {}),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _notesController,
-                        decoration: const InputDecoration(labelText: 'Catatan Panen', prefixIcon: Icon(Icons.note_alt_outlined)),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.calendar_today, size: 16),
-                        label: Text('Tanggal Panen: ${Formatters.formatDate(_date)}'),
-                        onPressed: () async {
-                          final d = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime(2000), lastDate: DateTime(2100));
-                          if (d != null) {
-                            setDialogState(() => _date = d);
-                          }
+                      const SizedBox(height: 16),
+
+                      InkWell(
+                        onTap: () {
+                          _showGradeBreakdownDialog(context, gradeA, gradeB, gradeC);
                         },
+                        child: Card(
+                          color: Colors.green[50],
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: Colors.green[200]!),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Total Berat (Otomatis)', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 13)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${totalWeight.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')} Kg',
+                                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.green[900]),
+                                    ),
+                                  ],
+                                ),
+                                Icon(Icons.info_outline, color: Colors.green[800]),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                       const Divider(height: 32),
-                      const Text('Detail Penjualan (Wajib)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green)),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: _selectedBuyerId,
-                        decoration: const InputDecoration(labelText: 'Pilih Tengkulak / Pembeli', prefixIcon: Icon(Icons.person)),
-                        items: buyers.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
-                        onChanged: (val) => setDialogState(() => _selectedBuyerId = val),
-                        validator: (value) => value == null ? 'Pembeli wajib dipilih' : null,
+
+                      const Text('Tengkulak / Pembeli:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: buyerSearchController,
+                        readOnly: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Pilih Tengkulak',
+                          prefixIcon: Icon(Icons.handshake),
+                          suffixIcon: Icon(Icons.arrow_drop_down),
+                        ),
+                        onTap: () {
+                          _showTengkulakSearchDialog(
+                            context,
+                            buyers,
+                            (Tengkulak selection) {
+                              setDialogState(() {
+                                selectedBuyerId = selection.id;
+                                buyerSearchController.text = selection.name;
+                              });
+                            },
+                            (String nameQ) {
+                              _showQuickAddTengkulakDialog(
+                                nameQ,
+                                setDialogState,
+                                buyerSearchController,
+                                (newId) {
+                                  selectedBuyerId = newId;
+                                },
+                              );
+                            },
+                          );
+                        },
+                        validator: (value) {
+                          if (selectedBuyerId == null || selectedBuyerId!.isEmpty) {
+                            return 'Tengkulak wajib dipilih';
+                          }
+                          return null;
+                        },
                       ),
-                      if ((double.tryParse(_gradeAController.text) ?? 0.0) > 0) ...[
-                        const SizedBox(height: 12),
+                      const SizedBox(height: 12),
+
+                      if (gradeA > 0) ...[
                         TextFormField(
                           controller: _priceAController,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(labelText: 'Harga Grade A per Kg (Rp)', prefixIcon: Icon(Icons.payments_outlined)),
                           onTap: () {
-                            if (_priceAController.text == '0') {
-                              _priceAController.clear();
-                            }
+                            if (_priceAController.text == '0') _priceAController.clear();
                           },
                           validator: (value) => (value == null || value.isEmpty) ? 'Harga Grade A wajib diisi' : null,
                           onChanged: (val) => setDialogState(() {}),
                         ),
-                      ],
-                      if ((double.tryParse(_gradeBController.text) ?? 0.0) > 0) ...[
                         const SizedBox(height: 12),
+                      ],
+                      if (gradeB > 0) ...[
                         TextFormField(
                           controller: _priceBController,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(labelText: 'Harga Grade B per Kg (Rp)', prefixIcon: Icon(Icons.payments_outlined)),
                           onTap: () {
-                            if (_priceBController.text == '0') {
-                              _priceBController.clear();
-                            }
+                            if (_priceBController.text == '0') _priceBController.clear();
                           },
                           validator: (value) => (value == null || value.isEmpty) ? 'Harga Grade B wajib diisi' : null,
                           onChanged: (val) => setDialogState(() {}),
                         ),
-                      ],
-                      if ((double.tryParse(_gradeCController.text) ?? 0.0) > 0) ...[
                         const SizedBox(height: 12),
+                      ],
+                      if (gradeC > 0) ...[
                         TextFormField(
                           controller: _priceCController,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(labelText: 'Harga Grade C per Kg (Rp)', prefixIcon: Icon(Icons.payments_outlined)),
                           onTap: () {
-                            if (_priceCController.text == '0') {
-                              _priceCController.clear();
-                            }
+                            if (_priceCController.text == '0') _priceCController.clear();
                           },
                           validator: (value) => (value == null || value.isEmpty) ? 'Harga Grade C wajib diisi' : null,
                           onChanged: (val) => setDialogState(() {}),
                         ),
+                        const SizedBox(height: 12),
                       ],
-                      const SizedBox(height: 12),
+
                       DropdownButtonFormField<String>(
-                        value: _salesStatus,
+                        value: salesStatus,
                         decoration: const InputDecoration(labelText: 'Status Pembayaran', prefixIcon: Icon(Icons.check_circle_outline)),
                         items: const [
                           DropdownMenuItem(value: 'Lunas', child: Text('Lunas')),
@@ -471,27 +949,32 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                         onChanged: (val) {
                           if (val != null) {
                             setDialogState(() {
-                              _salesStatus = val;
+                              salesStatus = val;
                               if (val == 'Lunas') _amountPaidController.clear();
                             });
                           }
                         },
                       ),
-                      if (_salesStatus == 'Belum Lunas') ...[
+                      if (salesStatus == 'Belum Lunas') ...[
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: _amountPaidController,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(labelText: 'Nominal yang Dibayar (Rp)', prefixIcon: Icon(Icons.price_check)),
                           onTap: () {
-                            if (_amountPaidController.text == '0') {
-                              _amountPaidController.clear();
-                            }
+                            if (_amountPaidController.text == '0') _amountPaidController.clear();
                           },
-                          validator: (value) => _salesStatus == 'Belum Lunas' && (value == null || value.isEmpty) ? 'Nominal dibayar wajib diisi' : null,
+                          validator: (value) => salesStatus == 'Belum Lunas' && (value == null || value.isEmpty) ? 'Nominal dibayar wajib diisi' : null,
                         ),
                       ],
+                      const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: _notesController,
+                        decoration: const InputDecoration(labelText: 'Catatan Panen', prefixIcon: Icon(Icons.note_alt_outlined)),
+                      ),
                       const SizedBox(height: 16),
+
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -505,9 +988,6 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                             const Text('Total Pendapatan:', style: TextStyle(fontWeight: FontWeight.bold)),
                             Builder(
                               builder: (context) {
-                                final gradeA = double.tryParse(_gradeAController.text) ?? 0.0;
-                                final gradeB = double.tryParse(_gradeBController.text) ?? 0.0;
-                                final gradeC = double.tryParse(_gradeCController.text) ?? 0.0;
                                 final priceA = double.tryParse(_priceAController.text) ?? 0.0;
                                 final priceB = double.tryParse(_priceBController.text) ?? 0.0;
                                 final priceC = double.tryParse(_priceCController.text) ?? 0.0;
@@ -522,92 +1002,109 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                         ),
                       ),
                       const SizedBox(height: 24),
+
                       ElevatedButton(
-                        onPressed: () async {
-                          if (!_formKey.currentState!.validate()) return;
-                          
-                          final gradeA = double.tryParse(_gradeAController.text) ?? 0.0;
-                          final gradeB = double.tryParse(_gradeBController.text) ?? 0.0;
-                          final gradeC = double.tryParse(_gradeCController.text) ?? 0.0;
-                          final weight = gradeA + gradeB + gradeC; // Total berat dihitung otomatis
-                          final notes = _notesController.text.trim();
+                        onPressed: canSave
+                            ? () async {
+                                if (!_formKey.currentState!.validate()) return;
+                                
+                                final buyer = buyers.firstWhere((b) => b.id == selectedBuyerId);
+                                final priceA = double.tryParse(_priceAController.text) ?? 0.0;
+                                final priceB = double.tryParse(_priceBController.text) ?? 0.0;
+                                final priceC = double.tryParse(_priceCController.text) ?? 0.0;
+                                final totalSales = (gradeA * priceA) + (gradeB * priceB) + (gradeC * priceC);
+                                final averagePrice = totalWeight > 0 ? (totalSales / totalWeight) : 0.0;
 
-                          final buyer = buyers.firstWhere((b) => b.id == _selectedBuyerId);
-                          final priceA = double.tryParse(_priceAController.text) ?? 0.0;
-                          final priceB = double.tryParse(_priceBController.text) ?? 0.0;
-                          final priceC = double.tryParse(_priceCController.text) ?? 0.0;
-                          
-                          final totalSales = (gradeA * priceA) + (gradeB * priceB) + (gradeC * priceC);
-                          final averagePrice = weight > 0 ? (totalSales / weight) : 0.0;
+                                final finalSisa = sisaPanen - perkiraanPanen;
+                                final newSeasonStatus = finalSisa <= 0.0 ? 'Panen Selesai' : 'Panen Sebagian';
+                                
+                                final updatedSeason = MusimTanam(
+                                  id: selectedSeason.id,
+                                  name: selectedSeason.name,
+                                  fieldId: selectedSeason.fieldId,
+                                  cropId: selectedSeason.cropId,
+                                  variety: selectedSeason.variety,
+                                  plantingArea: selectedSeason.plantingArea,
+                                  seedsCount: selectedSeason.seedsCount,
+                                  seedingDate: selectedSeason.seedingDate,
+                                  plantingDate: selectedSeason.plantingDate,
+                                  status: newSeasonStatus,
+                                  jenisTanam: selectedSeason.jenisTanam,
+                                );
+                                await ref.read(databaseRepositoryProvider).updateSeason(updatedSeason);
 
-                          // Aturan Bisnis Utama: Menentukan statusPeriode berdasarkan perkiraanPanen
-                          // Jika perkiraanPanen >= 100%, statusPeriode adalah 'Selesai', jika tidak maka 'Aktif'
-                          final statusPeriode = _perkiraanPanen >= 100.0 ? 'Selesai' : 'Aktif';
+                                final selectedLahan = seasonFields.firstWhere((f) => f.id == selectedFieldId, orElse: () => seasonFields.first);
 
-                          final data = Panen(
-                            id: harvest?.id ?? '',
-                            seasonId: _selectedSeasonId!,
-                            date: _date,
-                            weight: weight,
-                            gradeAWeight: gradeA,
-                            gradeBWeight: gradeB,
-                            gradeCWeight: gradeC,
-                            beratGradeA: gradeA,
-                            beratGradeB: gradeB,
-                            beratGradeC: gradeC,
-                            fruitsCount: 0,
-                            notes: notes,
-                            buyerId: buyer.id,
-                            buyerName: buyer.name,
-                            pricePerKg: averagePrice,
-                            totalPrice: totalSales,
-                            perkiraanPanen: _perkiraanPanen,
-                            statusPeriode: statusPeriode,
-                            priceGradeA: priceA > 0 ? priceA : null,
-                            priceGradeB: priceB > 0 ? priceB : null,
-                            priceGradeC: priceC > 0 ? priceC : null,
-                          );
+                                final data = Panen(
+                                  id: harvest?.id ?? '',
+                                  seasonId: selectedSeasonId!,
+                                  fieldId: selectedFieldId!,
+                                  fieldName: selectedLahan.name,
+                                  date: date,
+                                  weight: totalWeight,
+                                  gradeAWeight: gradeA,
+                                  gradeBWeight: gradeB,
+                                  gradeCWeight: gradeC,
+                                  beratGradeA: gradeA,
+                                  beratGradeB: gradeB,
+                                  beratGradeC: gradeC,
+                                  fruitsCount: 0,
+                                  notes: _notesController.text.trim(),
+                                  buyerId: buyer.id,
+                                  buyerName: buyer.name,
+                                  pricePerKg: averagePrice,
+                                  totalPrice: totalSales,
+                                  perkiraanPanen: perkiraanPanen,
+                                  statusPeriode: finalSisa <= 0.0 ? 'Selesai' : 'Aktif',
+                                  priceGradeA: priceA > 0 ? priceA : null,
+                                  priceGradeB: priceB > 0 ? priceB : null,
+                                  priceGradeC: priceC > 0 ? priceC : null,
+                                );
 
-                          if (harvest != null) {
-                            await ref.read(databaseRepositoryProvider).updateHarvest(data);
-                          } else {
-                            await ref.read(databaseRepositoryProvider).addHarvest(data);
-                            
-                            final season = seasons.firstWhere((s) => s.id == _selectedSeasonId);
-                            double paid = totalSales;
-                            if (_salesStatus == 'Belum Lunas') {
-                              paid = double.tryParse(_amountPaidController.text) ?? 0.0;
-                            }
-                            
-                            final saleData = Penjualan(
-                              id: '',
-                              date: _date,
-                              buyerId: buyer.id,
-                              buyerName: buyer.name,
-                              seasonId: _selectedSeasonId!,
-                              seasonName: season.name,
-                              weight: weight,
-                              pricePerKg: averagePrice,
-                              totalPrice: totalSales,
-                              status: _salesStatus,
-                              amountPaid: paid,
-                              remainingDebt: totalSales - paid,
-                              priceGradeA: priceA > 0 ? priceA : null,
-                              priceGradeB: priceB > 0 ? priceB : null,
-                              priceGradeC: priceC > 0 ? priceC : null,
-                            );
-                            await ref.read(databaseRepositoryProvider).addSale(saleData);
-                          }
+                                if (harvest != null) {
+                                  await ref.read(databaseRepositoryProvider).updateHarvest(data);
+                                } else {
+                                  await ref.read(databaseRepositoryProvider).addHarvest(data);
+                                  
+                                  double paid = totalSales;
+                                  if (salesStatus == 'Belum Lunas') {
+                                    paid = double.tryParse(_amountPaidController.text) ?? 0.0;
+                                  }
+                                  
+                                  final saleData = Penjualan(
+                                    id: '',
+                                    date: date,
+                                    buyerId: buyer.id,
+                                    buyerName: buyer.name,
+                                    seasonId: selectedSeasonId!,
+                                    seasonName: selectedSeason.name,
+                                    weight: totalWeight,
+                                    pricePerKg: averagePrice,
+                                    totalPrice: totalSales,
+                                    status: salesStatus,
+                                    amountPaid: paid,
+                                    remainingDebt: totalSales - paid,
+                                    priceGradeA: priceA > 0 ? priceA : null,
+                                    priceGradeB: priceB > 0 ? priceB : null,
+                                    priceGradeC: priceC > 0 ? priceC : null,
+                                  );
+                                  await ref.read(databaseRepositoryProvider).addSale(saleData);
+                                }
 
-                          if (mounted) {
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(harvest != null ? 'Data Panen berhasil diperbarui!' : 'Data Panen & Penjualan melon berhasil disimpan!'), 
-                              backgroundColor: Colors.green
-                            ));
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green[800], foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
+                                if (mounted) {
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                    content: Text(harvest != null ? 'Data Panen berhasil diperbarui!' : 'Data Panen & Penjualan berhasil disimpan!'),
+                                    backgroundColor: Colors.green,
+                                  ));
+                                }
+                              }
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[800],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
                         child: const Text('Simpan Data Panen & Penjualan', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(height: 20),
@@ -978,6 +1475,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
     final harvestsState = ref.watch(watchHarvestsProvider);
     final salesState = ref.watch(watchSalesProvider);
     final fieldsState = ref.watch(watchFieldsProvider);
+    final cropsState = ref.watch(watchCropsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -1019,6 +1517,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
 
               return Column(
                 children: [
+                  _buildSeasonProgressSection(seasonsState.value ?? [], harvests, fieldsState.value ?? []),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                     child: TextField(
@@ -1062,7 +1561,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                                           Expanded(
                                             child: Text("$seasonName (Lahan: $lahanName)", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
                                           ),
-                                          Text(Formatters.formatDate(h.date), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                          Text(Formatters.formatLongDate(h.date), style: const TextStyle(color: Colors.grey, fontSize: 12)),
                                           const SizedBox(width: 8),
                                           Builder(
                                             builder: (context) {
@@ -1083,7 +1582,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                                                 constraints: const BoxConstraints(),
                                                 onSelected: (value) {
                                                   if (value == 'edit') {
-                                                    _showPanenDialog(seasonsState.value ?? [], fieldsState.value ?? [], buyersState.value ?? [], harvest: h);
+                                                    _showPanenDialog(seasonsState.value ?? [], fieldsState.value ?? [], buyersState.value ?? [], harvestsState.value ?? [], cropsState.value ?? [], harvest: h);
                                                   } else if (value == 'delete') {
                                                     _confirmDeletePanen(h.id);
                                                   }
@@ -1473,6 +1972,8 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
           final seasons = seasonsState.value ?? [];
           final buyers = buyersState.value ?? [];
           final fields = fieldsState.value ?? [];
+          final harvests = harvestsState.value ?? [];
+          final crops = cropsState.value ?? [];
 
           if (_tabController.index == 0) {
             if (seasons.isEmpty) {
@@ -1483,7 +1984,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Harap tambah data tengkulak / pembeli terlebih dahulu!'), backgroundColor: Colors.red));
               return;
             }
-            _showPanenDialog(seasons, fields, buyers);
+            _showPanenDialog(seasons, fields, buyers, harvests, crops);
           } else if (_tabController.index == 1) {
             _showTengkulakDialog();
           } else {

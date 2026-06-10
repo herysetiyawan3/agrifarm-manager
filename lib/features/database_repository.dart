@@ -441,7 +441,10 @@ class DatabaseRepository {
 
   // --- TENGKULAK / BUYER CRUD ---
   Stream<List<Tengkulak>> watchBuyers() => _getStream(collection: 'buyers', builder: Tengkulak.fromMap);
-  Future<void> addBuyer(Tengkulak buyer) => _db.collection('buyers').add(buyer.toMap());
+  Future<String> addBuyer(Tengkulak buyer) async {
+    final docRef = await _db.collection('buyers').add(buyer.toMap());
+    return docRef.id;
+  }
   Future<void> updateBuyer(Tengkulak buyer) => _db.collection('buyers').doc(buyer.id).update(buyer.toMap());
   Future<void> deleteBuyer(String id) => _db.collection('buyers').doc(id).delete();
 

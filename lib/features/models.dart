@@ -580,6 +580,8 @@ class Pengeluaran {
 class Panen {
   final String id;
   final String seasonId;
+  final String fieldId; // Lahan Terpilih
+  final String fieldName; // Nama Lahan Terpilih
   final DateTime date;
   final double weight; // Total weight (dihitung otomatis: beratGradeA + beratGradeB + beratGradeC)
   final double gradeAWeight; // Disimpan juga untuk kompatibilitas data lama
@@ -603,6 +605,8 @@ class Panen {
   Panen({
     required this.id,
     required this.seasonId,
+    this.fieldId = '',
+    this.fieldName = '',
     required this.date,
     required this.weight,
     required this.gradeAWeight,
@@ -640,6 +644,8 @@ class Panen {
     return Panen(
       id: id,
       seasonId: map['seasonId'] ?? '',
+      fieldId: map['fieldId'] ?? '',
+      fieldName: map['fieldName'] ?? '',
       date: _parseDateTime(map['date']),
       weight: computedWeight,
       gradeAWeight: bA,
@@ -667,6 +673,8 @@ class Panen {
   Map<String, dynamic> toMap() {
     return {
       'seasonId': seasonId,
+      'fieldId': fieldId,
+      'fieldName': fieldName,
       'date': Timestamp.fromDate(date),
       'weight': weight,
       'gradeAWeight': gradeAWeight,
