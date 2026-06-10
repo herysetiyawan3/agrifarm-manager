@@ -19,6 +19,7 @@ class _PekerjaScreenState extends ConsumerState<PekerjaScreen> with SingleTicker
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
+  final _wageController = TextEditingController();
 
   // Activity Log Controllers
   final _dailyWageController = TextEditingController();
@@ -42,6 +43,7 @@ class _PekerjaScreenState extends ConsumerState<PekerjaScreen> with SingleTicker
     _nameController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
+    _wageController.dispose();
     _dailyWageController.dispose();
     _daysWorkedController.dispose();
     super.dispose();
@@ -51,6 +53,7 @@ class _PekerjaScreenState extends ConsumerState<PekerjaScreen> with SingleTicker
     _nameController.clear();
     _phoneController.clear();
     _addressController.clear();
+    _wageController.clear();
   }
 
   void _resetActivityForm() {
@@ -68,6 +71,7 @@ class _PekerjaScreenState extends ConsumerState<PekerjaScreen> with SingleTicker
       _nameController.text = worker.name;
       _phoneController.text = worker.phone;
       _addressController.text = worker.address;
+      _wageController.text = worker.dailyWage == worker.dailyWage.toInt() ? worker.dailyWage.toInt().toString() : worker.dailyWage.toString();
     } else {
       _resetWorkerForm();
     }
@@ -98,6 +102,13 @@ class _PekerjaScreenState extends ConsumerState<PekerjaScreen> with SingleTicker
                   controller: _addressController,
                   decoration: const InputDecoration(labelText: 'Alamat Tinggal'),
                 ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _wageController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Upah Harian (Rp)'),
+                  validator: (value) => value == null || value.isEmpty ? 'Upah harian wajib diisi' : null,
+                ),
               ],
             ),
           ),
@@ -113,6 +124,7 @@ class _PekerjaScreenState extends ConsumerState<PekerjaScreen> with SingleTicker
                   name: _nameController.text.trim(),
                   phone: _phoneController.text.trim(),
                   address: _addressController.text.trim(),
+                  dailyWage: double.tryParse(_wageController.text) ?? 0.0,
                 );
 
                 if (worker == null) {
@@ -350,7 +362,7 @@ class _PekerjaScreenState extends ConsumerState<PekerjaScreen> with SingleTicker
                     child: ListTile(
                       leading: CircleAvatar(backgroundColor: Colors.brown[100], child: Icon(Icons.person, color: Colors.brown[800])),
                       title: Text(w.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('HP: ${w.phone} | Alamat: ${w.address}'),
+                      subtitle: Text('HP: ${w.phone} | Alamat: ${w.address} | Upah: ${Formatters.formatRupiah(w.dailyWage)}/Hari'),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

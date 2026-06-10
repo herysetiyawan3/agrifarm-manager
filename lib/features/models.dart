@@ -130,14 +130,15 @@ class Tanaman {
 class MusimTanam {
   final String id;
   final String name;
-  final String fieldId;
+  final String fieldId; // Bisa berisi ID Lahan tunggal maupun dipisah koma untuk multi-lahan
   final String cropId;
   final String variety;
   final double plantingArea;
   final int seedsCount;
   final DateTime seedingDate;
   final DateTime plantingDate;
-  final String status; // 'Perencanaan', 'Berjalan', 'Selesai'
+  final String status; // 'Perencanaan', 'Berjalan', 'Panen Sebagian', 'Selesai'
+  final String jenisTanam; // 'Tanam Satu Komoditas' atau 'Tanam Campuran'
 
   MusimTanam({
     required this.id,
@@ -150,6 +151,7 @@ class MusimTanam {
     required this.seedingDate,
     required this.plantingDate,
     required this.status,
+    this.jenisTanam = 'Tanam Satu Komoditas',
   });
 
   factory MusimTanam.fromMap(Map<String, dynamic> map, String id) {
@@ -164,6 +166,7 @@ class MusimTanam {
       seedingDate: _parseDateTime(map['seedingDate']),
       plantingDate: _parseDateTime(map['plantingDate']),
       status: map['status'] ?? 'Perencanaan',
+      jenisTanam: map['jenisTanam'] ?? 'Tanam Satu Komoditas',
     );
   }
 
@@ -178,6 +181,7 @@ class MusimTanam {
       'seedingDate': Timestamp.fromDate(seedingDate),
       'plantingDate': Timestamp.fromDate(plantingDate),
       'status': status,
+      'jenisTanam': jenisTanam,
     };
   }
 }
@@ -194,6 +198,7 @@ class Pembelian {
   final double quantity;
   final double totalPrice;
   final String receiptPhotoUrl;
+  final String jumlah; // Teks bebas untuk jumlah & satuan (contoh: "2 Karung")
 
   Pembelian({
     required this.id,
@@ -206,9 +211,14 @@ class Pembelian {
     required this.quantity,
     required this.totalPrice,
     required this.receiptPhotoUrl,
+    this.jumlah = '',
   });
 
   factory Pembelian.fromMap(Map<String, dynamic> map, String id) {
+    final qty = (map['quantity'] as num?)?.toDouble() ?? 0.0;
+    // Fallback format untuk data lama agar tidak desimal berlebih jika bulat
+    final fallbackJumlah = qty == qty.toInt() ? qty.toInt().toString() : qty.toString();
+
     return Pembelian(
       id: id,
       itemName: map['itemName'] ?? '',
@@ -217,9 +227,10 @@ class Pembelian {
       supplier: map['supplier'] ?? '',
       purchaseDate: _parseDateTime(map['purchaseDate']),
       unitPrice: (map['unitPrice'] as num?)?.toDouble() ?? 0.0,
-      quantity: (map['quantity'] as num?)?.toDouble() ?? 0.0,
+      quantity: qty,
       totalPrice: (map['totalPrice'] as num?)?.toDouble() ?? 0.0,
       receiptPhotoUrl: map['receiptPhotoUrl'] ?? '',
+      jumlah: map['jumlah'] ?? fallbackJumlah,
     );
   }
 
@@ -234,6 +245,7 @@ class Pembelian {
       'quantity': quantity,
       'totalPrice': totalPrice,
       'receiptPhotoUrl': receiptPhotoUrl,
+      'jumlah': jumlah,
     };
   }
 }
@@ -442,12 +454,14 @@ class TenagaKerja {
   final String name;
   final String phone;
   final String address;
+  final double dailyWage;
 
   TenagaKerja({
     required this.id,
     required this.name,
     required this.phone,
     required this.address,
+    this.dailyWage = 0.0,
   });
 
   factory TenagaKerja.fromMap(Map<String, dynamic> map, String id) {
@@ -456,6 +470,7 @@ class TenagaKerja {
       name: map['name'] ?? '',
       phone: map['phone'] ?? '',
       address: map['address'] ?? '',
+      dailyWage: (map['dailyWage'] as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -464,6 +479,7 @@ class TenagaKerja {
       'name': name,
       'phone': phone,
       'address': address,
+      'dailyWage': dailyWage,
     };
   }
 }
@@ -565,17 +581,21 @@ class Panen {
   final String id;
   final String seasonId;
   final DateTime date;
-  final double weight; // Total weight
-  final double gradeAWeight;
-  final double gradeBWeight;
-  final double gradeCWeight;
+  final double weight; // Total weight (dihitung otomatis: beratGradeA + beratGradeB + beratGradeC)
+  final double gradeAWeight; // Disimpan juga untuk kompatibilitas data lama
+  final double gradeBWeight; // Disimpan juga untuk kompatibilitas data lama
+  final double gradeCWeight; // Disimpan juga untuk kompatibilitas data lama
+  final double beratGradeA; // Field baru database
+  final double beratGradeB; // Field baru database
+  final double beratGradeC; // Field baru database
   final int fruitsCount;
   final String notes;
   final String? buyerId;
   final String? buyerName;
   final double? pricePerKg;
   final double? totalPrice;
-  final int? harvestedTrees;
+  final double perkiraanPanen; // Field baru database (Persentase %, default: 0)
+  final String statusPeriode; // Field baru database ("Aktif" atau "Selesai", default: "Aktif")
   final double? priceGradeA;
   final double? priceGradeB;
   final double? priceGradeC;
@@ -588,34 +608,56 @@ class Panen {
     required this.gradeAWeight,
     required this.gradeBWeight,
     required this.gradeCWeight,
+    required this.beratGradeA,
+    required this.beratGradeB,
+    required this.beratGradeC,
     required this.fruitsCount,
     required this.notes,
     this.buyerId,
     this.buyerName,
     this.pricePerKg,
     this.totalPrice,
-    this.harvestedTrees,
+    required this.perkiraanPanen,
+    required this.statusPeriode,
     this.priceGradeA,
     this.priceGradeB,
     this.priceGradeC,
   });
 
   factory Panen.fromMap(Map<String, dynamic> map, String id) {
+    // Membaca berat masing-masing grade dari field baru beratGradeA/B/C
+    // Jika data lama, fallback ke gradeAWeight/gradeBWeight/gradeCWeight
+    final bA = (map['beratGradeA'] as num?)?.toDouble() ?? (map['gradeAWeight'] as num?)?.toDouble() ?? 0.0;
+    final bB = (map['beratGradeB'] as num?)?.toDouble() ?? (map['gradeBWeight'] as num?)?.toDouble() ?? 0.0;
+    final bC = (map['beratGradeC'] as num?)?.toDouble() ?? (map['gradeCWeight'] as num?)?.toDouble() ?? 0.0;
+
+    // Total berat didapat dari penjumlahan beratGradeA + beratGradeB + beratGradeC
+    // Jika data lama tidak memiliki berat per grade tapi memiliki weight, gunakan weight lama
+    final computedWeight = (bA > 0 || bB > 0 || bC > 0)
+        ? (bA + bB + bC)
+        : ((map['weight'] as num?)?.toDouble() ?? 0.0);
+
     return Panen(
       id: id,
       seasonId: map['seasonId'] ?? '',
       date: _parseDateTime(map['date']),
-      weight: (map['weight'] as num?)?.toDouble() ?? 0.0,
-      gradeAWeight: (map['gradeAWeight'] as num?)?.toDouble() ?? 0.0,
-      gradeBWeight: (map['gradeBWeight'] as num?)?.toDouble() ?? 0.0,
-      gradeCWeight: (map['gradeCWeight'] as num?)?.toDouble() ?? 0.0,
+      weight: computedWeight,
+      gradeAWeight: bA,
+      gradeBWeight: bB,
+      gradeCWeight: bC,
+      beratGradeA: bA,
+      beratGradeB: bB,
+      beratGradeC: bC,
       fruitsCount: map['fruitsCount'] ?? 0,
       notes: map['notes'] ?? '',
       buyerId: map['buyerId'],
       buyerName: map['buyerName'],
       pricePerKg: (map['pricePerKg'] as num?)?.toDouble(),
       totalPrice: (map['totalPrice'] as num?)?.toDouble(),
-      harvestedTrees: map['harvestedTrees'] as int?,
+      // Data lama yang tidak memiliki field perkiraanPanen akan diisi default 0
+      perkiraanPanen: (map['perkiraanPanen'] as num?)?.toDouble() ?? 0.0,
+      // Data lama yang tidak memiliki statusPeriode akan diisi default 'Aktif'
+      statusPeriode: map['statusPeriode'] ?? 'Aktif',
       priceGradeA: (map['priceGradeA'] as num?)?.toDouble(),
       priceGradeB: (map['priceGradeB'] as num?)?.toDouble(),
       priceGradeC: (map['priceGradeC'] as num?)?.toDouble(),
@@ -630,13 +672,17 @@ class Panen {
       'gradeAWeight': gradeAWeight,
       'gradeBWeight': gradeBWeight,
       'gradeCWeight': gradeCWeight,
+      'beratGradeA': beratGradeA,
+      'beratGradeB': beratGradeB,
+      'beratGradeC': beratGradeC,
       'fruitsCount': fruitsCount,
       'notes': notes,
       'buyerId': buyerId,
       'buyerName': buyerName,
       'pricePerKg': pricePerKg,
       'totalPrice': totalPrice,
-      'harvestedTrees': harvestedTrees,
+      'perkiraanPanen': perkiraanPanen,
+      'statusPeriode': statusPeriode,
       'priceGradeA': priceGradeA,
       'priceGradeB': priceGradeB,
       'priceGradeC': priceGradeC,
@@ -762,6 +808,62 @@ class Penjualan {
       'priceGradeA': priceGradeA,
       'priceGradeB': priceGradeB,
       'priceGradeC': priceGradeC,
+    };
+  }
+}
+
+// --- AKTIVITAS LAPANGAN MODEL ---
+class AktivitasLapangan {
+  final String id;
+  final String seasonId;
+  final String fieldIds; // Comma-separated list of Lahan IDs
+  final String activityType; // Pemupukan, Penyemprotan, Pengairan, Penyiangan, Pemasangan Mulsa, Tenaga Kerja, Lainnya
+  final String product; // Nama pupuk/pestisida/mulsa/etc. atau Nama Pekerja untuk Tenaga Kerja
+  final double quantity; // Dosis / Jumlah
+  final String unit; // Satuan
+  final DateTime date;
+  final String description; // Keterangan
+  final String status; // 'Direncanakan', 'Dilaksanakan', 'Dibatalkan'
+
+  AktivitasLapangan({
+    required this.id,
+    required this.seasonId,
+    required this.fieldIds,
+    required this.activityType,
+    required this.product,
+    required this.quantity,
+    required this.unit,
+    required this.date,
+    required this.description,
+    required this.status,
+  });
+
+  factory AktivitasLapangan.fromMap(Map<String, dynamic> map, String id) {
+    return AktivitasLapangan(
+      id: id,
+      seasonId: map['seasonId'] ?? '',
+      fieldIds: map['fieldIds'] ?? map['fieldId'] ?? '', // Fallback for old compatibility
+      activityType: map['activityType'] ?? 'Lainnya',
+      product: map['product'] ?? map['fertilizerName'] ?? map['productName'] ?? '', // Fallback
+      quantity: (map['quantity'] as num?)?.toDouble() ?? (map['dosage'] as num?)?.toDouble() ?? 0.0, // Fallback
+      unit: map['unit'] ?? '',
+      date: _parseDateTime(map['date']),
+      description: map['description'] ?? map['notes'] ?? map['method'] ?? '', // Fallback
+      status: map['status'] ?? 'Direncanakan',
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'seasonId': seasonId,
+      'fieldIds': fieldIds,
+      'activityType': activityType,
+      'product': product,
+      'quantity': quantity,
+      'unit': unit,
+      'date': Timestamp.fromDate(date),
+      'description': description,
+      'status': status,
     };
   }
 }

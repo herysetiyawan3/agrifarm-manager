@@ -142,4 +142,23 @@ class AuthRepository {
   Future<void> updateProfile(AppUser user) async {
     await _db.collection('users').doc(user.uid).update(user.toMap());
   }
+
+  // Update Password dengan reautentikasi password lama
+  Future<void> changePassword({
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      throw Exception("User tidak terautentikasi atau email tidak ditemukan.");
+    }
+    // Reautentikasi
+    final credential = EmailAuthProvider.credential(
+      email: user.email!,
+      password: oldPassword,
+    );
+    await user.reauthenticateWithCredential(credential);
+    // Perbarui password
+    await user.updatePassword(newPassword);
+  }
 }

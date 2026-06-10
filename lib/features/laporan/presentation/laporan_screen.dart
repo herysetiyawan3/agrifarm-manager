@@ -87,10 +87,15 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
         double expPupuk = 0.0;
         double expPest = 0.0;
         double expUpah = 0.0;
-        double expSewa = 0.0;
+        double expAir = 0.0;
+        double expMulsa = 0.0;
         double expLain = 0.0;
 
         final seasonExpenses = expenses.where((e) {
+          if (e.seasonId.isNotEmpty) {
+            return e.seasonId == activeSeason.id;
+          }
+          // Fallback date-based logic for older records
           return e.date.isAfter(activeSeason.seedingDate) && 
                  (activeSeason.status == 'Selesai' ? e.date.isBefore(DateTime.now()) : true);
         }).toList();
@@ -102,7 +107,8 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
             case 'Pupuk': expPupuk += e.amount; break;
             case 'Pestisida': expPest += e.amount; break;
             case 'Upah': expUpah += e.amount; break;
-            case 'Sewa Lahan': expSewa += e.amount; break;
+            case 'Air': expAir += e.amount; break;
+            case 'Mulsa': expMulsa += e.amount; break;
             default: expLain += e.amount; break;
           }
         }
@@ -216,11 +222,12 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
               // Rincian Biaya
               const Text('Rincian Kategori Biaya', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              _buildBreakdownItem('Beli Bibit', expBibit, totalExp, Colors.blue),
-              _buildBreakdownItem('Beli Pupuk', expPupuk, totalExp, Colors.green),
-              _buildBreakdownItem('Beli Pestisida', expPest, totalExp, Colors.orange),
-              _buildBreakdownItem('Upah Tenaga Kerja', expUpah, totalExp, Colors.red),
-              _buildBreakdownItem('Sewa Lahan', expSewa, totalExp, Colors.purple),
+              _buildBreakdownItem('Benih', expBibit, totalExp, Colors.blue),
+              _buildBreakdownItem('Pupuk', expPupuk, totalExp, Colors.green),
+              _buildBreakdownItem('Pestisida/Fungisida/Herbisida', expPest, totalExp, Colors.orange),
+              _buildBreakdownItem('Upah', expUpah, totalExp, Colors.red),
+              _buildBreakdownItem('Air', expAir, totalExp, Colors.cyan),
+              _buildBreakdownItem('Mulsa', expMulsa, totalExp, Colors.purple),
               _buildBreakdownItem('Lainnya/Operasional', expLain, totalExp, Colors.grey),
 
               const SizedBox(height: 36),
@@ -245,11 +252,12 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
                           labaBersih: netProfit,
                           marginKeuntungan: margin,
                           biayaKategori: {
-                            'Bibit': expBibit,
+                            'Benih': expBibit,
                             'Pupuk': expPupuk,
-                            'Pestisida': expPest,
-                            'Upah Pekerja': expUpah,
-                            'Sewa Lahan': expSewa,
+                            'Pestisida/Fungisida/Herbisida': expPest,
+                            'Upah': expUpah,
+                            'Air': expAir,
+                            'Mulsa': expMulsa,
                             'Lainnya/Operasional': expLain,
                           },
                         );
@@ -315,14 +323,18 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
         }).toList();
 
         double totalWeight = 0.0;
-        int totalTrees = 0;
+        double totalGradeA = 0.0;
+        double totalGradeB = 0.0;
+        double totalGradeC = 0.0;
         double totalRevenue = 0.0;
         
         final Map<String, Map<String, dynamic>> buyerStats = {};
 
         for (var h in filteredHarvests) {
           totalWeight += h.weight;
-          totalTrees += h.harvestedTrees ?? 0;
+          totalGradeA += h.beratGradeA;
+          totalGradeB += h.beratGradeB;
+          totalGradeC += h.beratGradeC;
           totalRevenue += h.totalPrice ?? 0.0;
 
           final buyerName = h.buyerName ?? 'Umum';
@@ -399,7 +411,6 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
                               'Tanggal Panen',
                               'Musim Tanam',
                               'Lahan',
-                              'Jumlah Pohon Terpanen',
                               'Total Berat (Kg)',
                               'Berat Grade A (Kg)',
                               'Harga Grade A (Rp/Kg)',
@@ -439,7 +450,6 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
                                 Formatters.formatDate(h.date),
                                 seasonName,
                                 lahanName,
-                                h.harvestedTrees ?? 0,
                                 h.weight,
                                 h.gradeAWeight,
                                 h.priceGradeA ?? 0.0,
@@ -461,7 +471,6 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
                               'TOTAL KESELURUHAN',
                               '',
                               '',
-                              totalTrees,
                               totalWeight,
                               '',
                               '',
@@ -537,97 +546,58 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
               ),
               const SizedBox(height: 12),
 
-              // Secondary Summary Cards (Row of 2)
-              Row(
-                children: [
-                  Expanded(
-                    child: Card(
-                      elevation: 3,
-                      shadowColor: Colors.black12,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Container(
-                        padding: const EdgeInsets.all(16.0),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Colors.blue[800]!, Colors.blue[600]!],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Row(
-                              children: [
-                                Icon(Icons.scale_outlined, color: Colors.white70, size: 16),
-                                SizedBox(width: 6),
-                                Text(
-                                  'TOTAL BERAT',
-                                  style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${totalWeight.toStringAsFixed(1).replaceAll('.', ',')} Kg',
-                              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Rata-rata: ${filteredHarvests.isNotEmpty ? (totalWeight / filteredHarvests.length).toStringAsFixed(1).replaceAll('.', ',') : '0'} Kg/panen',
-                              style: const TextStyle(color: Colors.white70, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
+              // Total Weight Card (Full Width)
+              Card(
+                elevation: 4,
+                shadowColor: Colors.black12,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Container(
+                  padding: const EdgeInsets.all(20.0),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1E40AF), Color(0xFF3B82F6)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Card(
-                      elevation: 3,
-                      shadowColor: Colors.black12,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Container(
-                        padding: const EdgeInsets.all(16.0),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Colors.orange[800]!, Colors.orange[600]!],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.scale_outlined, color: Colors.white70, size: 18),
+                          SizedBox(width: 8),
+                          Text(
+                            'TOTAL BERAT PANEN',
+                            style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.8),
                           ),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Row(
-                              children: [
-                                Icon(Icons.nature_outlined, color: Colors.white70, size: 16),
-                                SizedBox(width: 6),
-                                Text(
-                                  'POHON PANEN',
-                                  style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _formatTreesCount(totalTrees),
-                              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${totalTrees > 0 ? (totalWeight / totalTrees).toStringAsFixed(2).replaceAll('.', ',') : '0'} Kg/pohon',
-                              style: const TextStyle(color: Colors.white70, fontSize: 11),
-                            ),
-                          ],
-                        ),
+                        ],
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${totalWeight.toStringAsFixed(1).replaceAll('.', ',')} Kg',
+                        style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Rata-rata: ${filteredHarvests.isNotEmpty ? (totalWeight / filteredHarvests.length).toStringAsFixed(1).replaceAll('.', ',') : '0'} Kg per panen',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(color: Colors.white24, height: 1),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildGradeWeightItem('Grade A', totalGradeA),
+                          _buildGradeWeightItem('Grade B', totalGradeB),
+                          _buildGradeWeightItem('Grade C', totalGradeC),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
               const SizedBox(height: 24),
 
@@ -720,13 +690,7 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
     );
   }
 
-  String _formatTreesCount(int count) {
-    if (count >= 1000) {
-      final double thousands = count / 1000;
-      return "${thousands.toStringAsFixed(1).replaceAll('.', ',')} rb";
-    }
-    return "$count";
-  }
+
 
   Widget _buildBreakdownItem(String label, double value, double total, Color color) {
     final pct = total > 0 ? (value / total) : 0.0;
@@ -751,6 +715,23 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> with SingleTicker
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildGradeWeightItem(String gradeName, double weight) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          gradeName,
+          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${weight.toStringAsFixed(1).replaceAll('.', ',')} Kg',
+          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
 }

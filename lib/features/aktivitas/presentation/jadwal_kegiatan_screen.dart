@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models.dart';
 import '../../database_repository.dart';
-import '../../../core/services/notification_service.dart';
 import '../../../core/utils/formatters.dart';
-import '../../auth/presentation/auth_providers.dart';
 
 class JadwalKegiatanScreen extends ConsumerStatefulWidget {
   const JadwalKegiatanScreen({super.key});
@@ -13,76 +11,142 @@ class JadwalKegiatanScreen extends ConsumerStatefulWidget {
   ConsumerState<JadwalKegiatanScreen> createState() => _JadwalKegiatanScreenState();
 }
 
-class _JadwalKegiatanScreenState extends ConsumerState<JadwalKegiatanScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _JadwalKegiatanScreenState extends ConsumerState<JadwalKegiatanScreen> {
   final _formKey = GlobalKey<FormState>();
 
   // Dialog Form Controllers
-  final _hstController = TextEditingController();
   final _productController = TextEditingController();
-  final _dosageController = TextEditingController();
-  final _targetController = TextEditingController();
-  final _notesController = TextEditingController();
+  final _quantityController = TextEditingController();
+  final _unitController = TextEditingController();
+  final _descriptionController = TextEditingController();
 
-  DateTime _scheduledDate = DateTime.now();
-  String _selectedUnit = 'Kg';
-  String _selectedMethod = 'Kocor'; // Fertilization
-  String _selectedProductType = 'Fungisida'; // Spraying
+  String? _selectedSeasonId;
+  String _selectedActivityType = 'Pemupukan';
+  DateTime _activityDate = DateTime.now();
+  String _activityStatus = 'Direncanakan';
+  List<String> _selectedFieldIds = [];
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
+  // Dropdown states
+  String? _selectedStockProduct;
+  String? _selectedWorker;
+  bool _manualProductInput = false;
+
+  final List<String> _activityTypes = [
+    'Pemupukan',
+    'Penyemprotan',
+    'Pengairan',
+    'Penyiangan',
+    'Pemasangan Mulsa',
+    'Tenaga Kerja',
+    'Lainnya'
+  ];
 
   @override
   void dispose() {
-    _tabController.dispose();
-    _hstController.dispose();
     _productController.dispose();
-    _dosageController.dispose();
-    _targetController.dispose();
-    _notesController.dispose();
+    _quantityController.dispose();
+    _unitController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
   void _resetForm() {
-    _hstController.clear();
     _productController.clear();
-    _dosageController.clear();
-    _targetController.clear();
-    _notesController.clear();
+    _quantityController.clear();
+    _unitController.clear();
+    _descriptionController.clear();
     setState(() {
-      _scheduledDate = DateTime.now();
-      _selectedUnit = 'Kg';
-      _selectedMethod = 'Kocor';
-      _selectedProductType = 'Fungisida';
+      _selectedActivityType = 'Pemupukan';
+      _activityDate = DateTime.now();
+      _activityStatus = 'Direncanakan';
+      _selectedFieldIds = [];
+      _selectedStockProduct = null;
+      _selectedWorker = null;
+      _manualProductInput = false;
     });
   }
 
-  // Show dialog to add / edit Fertilization
-  void _showFertilisationDialog(String seasonId, [JadwalPemupukan? oldFert]) {
-    if (oldFert != null) {
-      _hstController.text = oldFert.hst.toString();
-      _productController.text = oldFert.fertilizerName;
-      _dosageController.text = oldFert.dosage.toString();
-      _selectedUnit = oldFert.unit;
-      _selectedMethod = oldFert.method;
-      _scheduledDate = oldFert.date;
+  void _showActivityDialog(
+    List<MusimTanam> seasons,
+    List<Lahan> fields,
+    List<Stok> inventory,
+    List<TenagaKerja> workers, [
+    AktivitasLapangan? oldAct,
+  ]) {
+    final currentSeasonId = _selectedSeasonId ?? (seasons.isNotEmpty ? seasons.first.id : null);
+    if (currentSeasonId == null) return;
+
+    final selectedSeason = seasons.firstWhere((s) => s.id == currentSeasonId);
+    final seasonFieldIds = selectedSeason.fieldId
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    final seasonFields = fields.where((f) => seasonFieldIds.contains(f.id)).toList();
+
+    if (oldAct != null) {
+      _selectedActivityType = oldAct.activityType;
+      _quantityController.text = oldAct.quantity == oldAct.quantity.toInt()
+          ? oldAct.quantity.toInt().toString()
+          : oldAct.quantity.toString();
+      _unitController.text = oldAct.unit;
+      _descriptionController.text = oldAct.description;
+      _activityDate = oldAct.date;
+      _activityStatus = oldAct.status;
+      _selectedFieldIds = oldAct.fieldIds
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+
+      if (oldAct.activityType == 'Tenaga Kerja') {
+        _selectedWorker = workers.any((w) => w.name == oldAct.product) ? oldAct.product : null;
+        _productController.text = oldAct.product;
+      } else if (['Pemupukan', 'Penyemprotan', 'Pemasangan Mulsa']
+          .contains(oldAct.activityType)) {
+        _selectedStockProduct = inventory.any((s) => s.itemName == oldAct.product)
+            ? oldAct.product
+            : null;
+        _productController.text = oldAct.product;
+        _manualProductInput = _selectedStockProduct == null;
+      } else {
+        _productController.text = oldAct.product;
+        _manualProductInput = true;
+      }
     } else {
       _resetForm();
-      _selectedUnit = 'Kg';
+      // By default check all fields in the season
+      _selectedFieldIds = List.from(seasonFieldIds);
     }
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            // Filter inventory by category
+            List<Stok> filteredInventory = [];
+            if (_selectedActivityType == 'Pemupukan') {
+              filteredInventory = inventory.where((s) => s.category == 'Pupuk').toList();
+            } else if (_selectedActivityType == 'Penyemprotan') {
+              filteredInventory = inventory
+                  .where((s) => ['Pestisida', 'Fungisida', 'Herbisida'].contains(s.category))
+                  .toList();
+            } else if (_selectedActivityType == 'Pemasangan Mulsa') {
+              filteredInventory = inventory.where((s) => s.category == 'Mulsa').toList();
+            }
+
             return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 24, left: 20, right: 20),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                top: 24,
+                left: 20,
+                right: 20,
+              ),
               child: SingleChildScrollView(
                 child: Form(
                   key: _formKey,
@@ -90,122 +154,343 @@ class _JadwalKegiatanScreenState extends ConsumerState<JadwalKegiatanScreen> wit
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(oldFert == null ? 'Jadwalkan Pemupukan' : 'Edit Jadwal Pemupukan', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green), textAlign: TextAlign.center),
+                      Text(
+                        oldAct == null ? 'Catat Aktivitas Lapangan' : 'Edit Aktivitas Lapangan',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                       const SizedBox(height: 20),
-                      TextFormField(
-                        controller: _hstController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Hari Setelah Tanam (HST)', prefixIcon: Icon(Icons.timer)),
-                        onTap: () {
-                          if (_hstController.text == '0') {
-                            _hstController.clear();
+                      DropdownButtonFormField<String>(
+                        value: _selectedActivityType,
+                        decoration: const InputDecoration(
+                          labelText: 'Jenis Aktivitas',
+                          prefixIcon: Icon(Icons.work_outline),
+                        ),
+                        items: _activityTypes
+                            .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                            .toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDialogState(() {
+                              _selectedActivityType = val;
+                              _selectedStockProduct = null;
+                              _selectedWorker = null;
+                              _manualProductInput = !['Pemupukan', 'Penyemprotan', 'Pemasangan Mulsa', 'Tenaga Kerja'].contains(val);
+                              _productController.clear();
+                              
+                              if (val == 'Tenaga Kerja') {
+                                _unitController.text = 'Hari';
+                                if (workers.isNotEmpty) {
+                                  _selectedWorker = workers.first.name;
+                                  _productController.text = workers.first.name;
+                                }
+                              } else {
+                                _unitController.clear();
+                              }
+                            });
                           }
                         },
-                        validator: (value) => value == null || value.isEmpty ? 'HST wajib diisi' : null,
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _productController,
-                        decoration: const InputDecoration(labelText: 'Nama Pupuk', prefixIcon: Icon(Icons.grass_outlined)),
-                        validator: (value) => value == null || value.isEmpty ? 'Nama pupuk wajib diisi' : null,
-                      ),
+
+                      // Product Selector
+                      if (_selectedActivityType == 'Tenaga Kerja') ...[
+                        DropdownButtonFormField<String>(
+                          value: _selectedWorker,
+                          decoration: const InputDecoration(
+                            labelText: 'Pilih Pekerja',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                          items: workers
+                              .map((w) => DropdownMenuItem(value: w.name, child: Text(w.name)))
+                              .toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() {
+                                _selectedWorker = val;
+                                _productController.text = val;
+                              });
+                            }
+                          },
+                          validator: (value) => value == null ? 'Pekerja wajib dipilih' : null,
+                        ),
+                      ] else if (['Pemupukan', 'Penyemprotan', 'Pemasangan Mulsa']
+                          .contains(_selectedActivityType)) ...[
+                        if (!_manualProductInput && filteredInventory.isNotEmpty) ...[
+                          DropdownButtonFormField<String>(
+                            value: _selectedStockProduct,
+                            decoration: const InputDecoration(
+                              labelText: 'Pilih Produk dari Stok',
+                              prefixIcon: Icon(Icons.inventory_2_outlined),
+                            ),
+                            items: [
+                              ...filteredInventory.map((s) => DropdownMenuItem(
+                                    value: s.itemName,
+                                    child: Text(
+                                        '${s.itemName} (Stok: ${s.currentStock.toStringAsFixed(0)} ${s.unit})'),
+                                  )),
+                              const DropdownMenuItem(
+                                value: '__manual__',
+                                child: Text('+ Ketik Manual (Barang Baru)'),
+                              ),
+                            ],
+                            onChanged: (val) {
+                              if (val == '__manual__') {
+                                setDialogState(() {
+                                  _manualProductInput = true;
+                                  _selectedStockProduct = null;
+                                  _productController.clear();
+                                  _unitController.clear();
+                                });
+                              } else if (val != null) {
+                                final stockItem = inventory.firstWhere((s) => s.itemName == val);
+                                setDialogState(() {
+                                  _selectedStockProduct = val;
+                                  _productController.text = val;
+                                  _unitController.text = stockItem.unit;
+                                });
+                              }
+                            },
+                            validator: (value) => value == null ? 'Produk wajib dipilih' : null,
+                          ),
+                        ] else ...[
+                          TextFormField(
+                            controller: _productController,
+                            decoration: InputDecoration(
+                              labelText: 'Nama Produk / Barang',
+                              prefixIcon: const Icon(Icons.label_outlined),
+                              suffixIcon: filteredInventory.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.list),
+                                      onPressed: () {
+                                        setDialogState(() {
+                                          _manualProductInput = false;
+                                        });
+                                      },
+                                    )
+                                  : null,
+                            ),
+                            validator: (value) =>
+                                value == null || value.isEmpty ? 'Nama produk wajib diisi' : null,
+                          ),
+                        ]
+                      ] else ...[
+                        TextFormField(
+                          controller: _productController,
+                          decoration: const InputDecoration(
+                            labelText: 'Alat / Bahan (Opsional)',
+                            prefixIcon: Icon(Icons.label_outlined),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
+
+                      // Dosis & Satuan Row
                       Row(
                         children: [
                           Expanded(
                             flex: 2,
                             child: TextFormField(
-                              controller: _dosageController,
+                              controller: _quantityController,
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(labelText: 'Dosis Pupuk', prefixIcon: Icon(Icons.scale)),
-                              onTap: () {
-                                if (_dosageController.text == '0' || _dosageController.text == '0.0') {
-                                  _dosageController.clear();
-                                }
-                              },
-                              validator: (value) => value == null || value.isEmpty ? 'Dosis wajib diisi' : null,
+                              decoration: InputDecoration(
+                                labelText: _selectedActivityType == 'Tenaga Kerja'
+                                    ? 'Durasi Kerja'
+                                    : 'Dosis / Jumlah',
+                                prefixIcon: const Icon(Icons.scale_outlined),
+                              ),
+                              validator: (value) =>
+                                  value == null || value.isEmpty ? 'Wajib diisi' : null,
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedUnit,
-                              items: const [
-                                DropdownMenuItem(value: 'Kg', child: Text('Kg')),
-                                DropdownMenuItem(value: 'Gram', child: Text('Gram')),
-                                DropdownMenuItem(value: 'Karung', child: Text('Karung')),
-                              ],
-                              onChanged: (val) => setDialogState(() => _selectedUnit = val!),
+                            child: TextFormField(
+                              controller: _unitController,
+                              decoration: const InputDecoration(
+                                labelText: 'Satuan',
+                                hintText: 'e.g. Kg, Ml, Hari',
+                              ),
+                              validator: (value) =>
+                                  value == null || value.isEmpty ? 'Wajib diisi' : null,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: _selectedMethod,
-                        decoration: const InputDecoration(labelText: 'Metode Aplikasi', prefixIcon: Icon(Icons.settings_input_component_outlined)),
-                        items: const [
-                          DropdownMenuItem(value: 'Kocor', child: Text('Kocor')),
-                          DropdownMenuItem(value: 'Tabur', child: Text('Tabur')),
-                          DropdownMenuItem(value: 'Fertigasi', child: Text('Fertigasi')),
-                        ],
-                        onChanged: (val) => setDialogState(() => _selectedMethod = val!),
+                      const SizedBox(height: 16),
+
+                      // Multi Lahan Selector
+                      const Text(
+                        'Pilih Lahan yang Terlibat',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        constraints: const BoxConstraints(maxHeight: 150),
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: seasonFields.map((lahan) {
+                            final isChecked = _selectedFieldIds.contains(lahan.id);
+                            return CheckboxListTile(
+                              title: Text(lahan.name, style: const TextStyle(fontSize: 14)),
+                              value: isChecked,
+                              activeColor: Colors.green,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  if (val == true) {
+                                    _selectedFieldIds.add(lahan.id);
+                                  } else {
+                                    _selectedFieldIds.remove(lahan.id);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
                       ),
                       const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: _descriptionController,
+                        decoration: const InputDecoration(
+                          labelText: 'Keterangan Tambahan',
+                          prefixIcon: Icon(Icons.description_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
                       OutlinedButton.icon(
                         icon: const Icon(Icons.calendar_today, size: 16),
-                        label: Text('Tanggal: ${Formatters.formatDate(_scheduledDate)}'),
+                        label: Text('Tanggal: ${Formatters.formatLongDate(_activityDate)}'),
                         onPressed: () async {
-                          final date = await showDatePicker(context: context, initialDate: _scheduledDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                          final date = await showDatePicker(
+                            context: context,
+                            initialDate: _activityDate,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime(2100),
+                          );
                           if (date != null) {
-                            setDialogState(() => _scheduledDate = date);
+                            setDialogState(() {
+                              _activityDate = date;
+                            });
                           }
                         },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _activityStatus,
+                        decoration: const InputDecoration(
+                          labelText: 'Status Aktivitas',
+                          prefixIcon: Icon(Icons.check_circle_outline),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'Direncanakan', child: Text('Direncanakan')),
+                          DropdownMenuItem(value: 'Dilaksanakan', child: Text('Dilaksanakan')),
+                          DropdownMenuItem(value: 'Dibatalkan', child: Text('Dibatalkan')),
+                        ],
+                        onChanged: (val) => setDialogState(() => _activityStatus = val!),
                       ),
                       const SizedBox(height: 24),
                       ElevatedButton(
                         onPressed: () async {
                           if (!_formKey.currentState!.validate()) return;
-                          final repo = ref.read(databaseRepositoryProvider);
-                          
-                          final data = JadwalPemupukan(
-                            id: oldFert?.id ?? '',
-                            seasonId: seasonId,
-                            hst: int.tryParse(_hstController.text) ?? 0,
-                            date: _scheduledDate,
-                            fertilizerName: _productController.text.trim(),
-                            dosage: double.tryParse(_dosageController.text) ?? 0.0,
-                            unit: _selectedUnit,
-                            method: _selectedMethod,
-                            status: oldFert?.status ?? 'Belum Dilaksanakan',
-                          );
-
-                          if (oldFert == null) {
-                            await repo.addFertilization(data);
-                          } else {
-                            await repo.updateFertilization(data);
+                          if (_selectedFieldIds.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Pilih minimal satu lahan!'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                            return;
                           }
 
-                          // Schedule notification reminder (24 hours before / at 7am of the day)
-                          try {
-                            final reminderTime = DateTime(_scheduledDate.year, _scheduledDate.month, _scheduledDate.day, 7, 0);
-                            await NotificationService().scheduleNotification(
-                              id: data.hashCode,
-                              title: 'Pengingat Pemupukan 🌿',
-                              body: 'Jadwal pemupukan ${data.fertilizerName} hari ini untuk musim tanam Anda.',
-                              scheduledTime: reminderTime,
-                            );
-                          } catch (e) {
-                            debugPrint('Failed to schedule notification: $e');
+                          final repo = ref.read(databaseRepositoryProvider);
+                          final activity = AktivitasLapangan(
+                            id: oldAct?.id ?? '',
+                            seasonId: currentSeasonId,
+                            fieldIds: _selectedFieldIds.join(','),
+                            activityType: _selectedActivityType,
+                            product: _productController.text.trim(),
+                            quantity: double.tryParse(_quantityController.text) ?? 0.0,
+                            unit: _unitController.text.trim(),
+                            date: _activityDate,
+                            description: _descriptionController.text.trim(),
+                            status: _activityStatus,
+                          );
+
+                          if (oldAct == null) {
+                            if (_activityStatus == 'Dilaksanakan') {
+                              // Save as direncanakan first, then execute to deduct stock and cost properly
+                              final tempAct = AktivitasLapangan(
+                                id: '',
+                                seasonId: activity.seasonId,
+                                fieldIds: activity.fieldIds,
+                                activityType: activity.activityType,
+                                product: activity.product,
+                                quantity: activity.quantity,
+                                unit: activity.unit,
+                                date: activity.date,
+                                description: activity.description,
+                                status: 'Direncanakan',
+                              );
+                              final docId = await repo.addActivity(tempAct);
+                              
+                              final actToExecute = AktivitasLapangan(
+                                id: docId,
+                                seasonId: tempAct.seasonId,
+                                fieldIds: tempAct.fieldIds,
+                                activityType: tempAct.activityType,
+                                product: tempAct.product,
+                                quantity: tempAct.quantity,
+                                unit: tempAct.unit,
+                                date: tempAct.date,
+                                description: tempAct.description,
+                                status: tempAct.status,
+                              );
+                              await repo.executeActivity(actToExecute);
+                            } else {
+                              await repo.addActivity(activity);
+                            }
+                          } else {
+                            if (oldAct.status != 'Dilaksanakan' && _activityStatus == 'Dilaksanakan') {
+                              await repo.executeActivity(activity);
+                            } else {
+                              await repo.updateActivity(activity);
+                            }
                           }
 
                           if (mounted) {
                             Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Jadwal pemupukan berhasil disimpan!'), backgroundColor: Colors.green));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Aktivitas lapangan berhasil disimpan!'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
                           }
                         },
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green[800], foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
-                        child: const Text('Simpan Jadwal', style: TextStyle(fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[800],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Simpan Aktivitas', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(height: 20),
                     ],
@@ -219,216 +504,32 @@ class _JadwalKegiatanScreenState extends ConsumerState<JadwalKegiatanScreen> wit
     );
   }
 
-  // Show dialog to add / edit Spraying
-  void _showSprayingDialog(String seasonId, [JadwalPenyemprotan? oldSpray]) {
-    if (oldSpray != null) {
-      _hstController.text = oldSpray.hst.toString();
-      _productController.text = oldSpray.productName;
-      _selectedProductType = oldSpray.productType;
-      _dosageController.text = oldSpray.dosage.toString();
-      _targetController.text = oldSpray.targetPest;
-      _notesController.text = oldSpray.notes;
-      _scheduledDate = oldSpray.date;
-    } else {
-      _resetForm();
-      _selectedProductType = 'Fungisida';
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 24, left: 20, right: 20),
-              child: SingleChildScrollView(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(oldSpray == null ? 'Jadwalkan Penyemprotan' : 'Edit Jadwal Penyemprotan', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green), textAlign: TextAlign.center),
-                      const SizedBox(height: 20),
-                      TextFormField(
-                        controller: _hstController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Hari Setelah Tanam (HST)', prefixIcon: Icon(Icons.timer)),
-                        onTap: () {
-                          if (_hstController.text == '0') {
-                            _hstController.clear();
-                          }
-                        },
-                        validator: (value) => value == null || value.isEmpty ? 'HST wajib diisi' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _productController,
-                        decoration: const InputDecoration(labelText: 'Nama Produk (Merek)', prefixIcon: Icon(Icons.bug_report_outlined)),
-                        validator: (value) => value == null || value.isEmpty ? 'Nama produk wajib diisi' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: _selectedProductType,
-                        decoration: const InputDecoration(labelText: 'Jenis Produk', prefixIcon: Icon(Icons.category)),
-                        items: const [
-                          DropdownMenuItem(value: 'Fungisida', child: Text('Fungisida')),
-                          DropdownMenuItem(value: 'Insektisida', child: Text('Insektisida')),
-                          DropdownMenuItem(value: 'Bakterisida', child: Text('Bakterisida')),
-                          DropdownMenuItem(value: 'Herbisida', child: Text('Herbisida')),
-                        ],
-                        onChanged: (val) => setDialogState(() => _selectedProductType = val!),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _dosageController,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(labelText: 'Dosis (ml / L)', prefixIcon: Icon(Icons.scale)),
-                              onTap: () {
-                                if (_dosageController.text == '0' || _dosageController.text == '0.0') {
-                                  _dosageController.clear();
-                                }
-                              },
-                              validator: (value) => value == null || value.isEmpty ? 'Dosis wajib diisi' : null,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _targetController,
-                              decoration: const InputDecoration(labelText: 'Target Hama', prefixIcon: Icon(Icons.coronavirus)),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _notesController,
-                        decoration: const InputDecoration(labelText: 'Catatan Penyemprotan', prefixIcon: Icon(Icons.note_alt_outlined)),
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.calendar_today, size: 16),
-                        label: Text('Tanggal: ${Formatters.formatDate(_scheduledDate)}'),
-                        onPressed: () async {
-                          final date = await showDatePicker(context: context, initialDate: _scheduledDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
-                          if (date != null) {
-                            setDialogState(() => _scheduledDate = date);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        onPressed: () async {
-                          if (!_formKey.currentState!.validate()) return;
-                          final repo = ref.read(databaseRepositoryProvider);
-                          
-                          final data = JadwalPenyemprotan(
-                            id: oldSpray?.id ?? '',
-                            seasonId: seasonId,
-                            hst: int.tryParse(_hstController.text) ?? 0,
-                            date: _scheduledDate,
-                            productName: _productController.text.trim(),
-                            productType: _selectedProductType,
-                            dosage: double.tryParse(_dosageController.text) ?? 0.0,
-                            targetPest: _targetController.text.trim(),
-                            notes: _notesController.text.trim(),
-                            status: oldSpray?.status ?? 'Belum Dilaksanakan',
-                          );
-
-                          if (oldSpray == null) {
-                            await repo.addSpraying(data);
-                          } else {
-                            await repo.updateSpraying(data);
-                          }
-
-                          // Schedule notification reminder (at 7am of the day)
-                          try {
-                            final reminderTime = DateTime(_scheduledDate.year, _scheduledDate.month, _scheduledDate.day, 7, 0);
-                            await NotificationService().scheduleNotification(
-                              id: data.hashCode,
-                              title: 'Pengingat Penyemprotan 🛡️',
-                              body: 'Jadwal penyemprotan ${data.productName} (${data.productType}) hari ini.',
-                              scheduledTime: reminderTime,
-                            );
-                          } catch (e) {
-                            debugPrint('Failed to schedule notification: $e');
-                          }
-
-                          if (mounted) {
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Jadwal penyemprotan berhasil disimpan!'), backgroundColor: Colors.green));
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green[800], foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
-                        child: const Text('Simpan Jadwal', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _markFertDone(JadwalPemupukan f) async {
-    final updated = JadwalPemupukan(
-      id: f.id,
-      seasonId: f.seasonId,
-      hst: f.hst,
-      date: f.date,
-      fertilizerName: f.fertilizerName,
-      dosage: f.dosage,
-      unit: f.unit,
-      method: f.method,
-      status: 'Selesai',
-    );
-    await ref.read(databaseRepositoryProvider).updateFertilization(updated);
+  void _laksanakanActivity(AktivitasLapangan act) async {
+    await ref.read(databaseRepositoryProvider).executeActivity(act);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kegiatan Pemupukan selesai dicatat & Stok berkurang!'), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text('Aktivitas dilaksanakan. Stok berkurang & Biaya tercatat!'),
+          backgroundColor: Colors.green,
+        ),
       );
     }
   }
 
-  void _markSprayDone(JadwalPenyemprotan s) async {
-    final updated = JadwalPenyemprotan(
-      id: s.id,
-      seasonId: s.seasonId,
-      hst: s.hst,
-      date: s.date,
-      productName: s.productName,
-      productType: s.productType,
-      dosage: s.dosage,
-      targetPest: s.targetPest,
-      notes: s.notes,
-      status: 'Selesai',
-    );
-    await ref.read(databaseRepositoryProvider).updateSpraying(updated);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kegiatan Penyemprotan selesai dicatat & Stok berkurang!'), backgroundColor: Colors.green),
-      );
-    }
-  }
-
-  void _deleteFert(JadwalPemupukan f) async {
+  void _deleteActivity(AktivitasLapangan act) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Hapus Jadwal Pemupukan?'),
-        content: Text('Apakah Anda yakin ingin menghapus jadwal pemupukan ${f.fertilizerName}? Jika jadwal sudah berstatus selesai, stok pupuk akan dikembalikan.'),
+        title: const Text('Hapus Aktivitas?'),
+        content: Text(
+          'Apakah Anda yakin ingin menghapus aktivitas ${act.activityType} - ${act.product}? '
+          'Jika sudah dilaksanakan, stok akan dikembalikan dan catatan biaya akan dihapus.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -439,37 +540,13 @@ class _JadwalKegiatanScreenState extends ConsumerState<JadwalKegiatanScreen> wit
     );
 
     if (confirmed == true) {
-      await ref.read(databaseRepositoryProvider).deleteFertilization(f.id, f);
+      await ref.read(databaseRepositoryProvider).deleteActivity(act);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Jadwal pemupukan berhasil dihapus.'), backgroundColor: Colors.orange),
-        );
-      }
-    }
-  }
-
-  void _deleteSpray(JadwalPenyemprotan s) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Hapus Jadwal Penyemprotan?'),
-        content: Text('Apakah Anda yakin ingin menghapus jadwal penyemprotan ${s.productName}? Jika jadwal sudah berstatus selesai, stok pestisida akan dikembalikan.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Hapus', style: TextStyle(color: Colors.white)),
+          const SnackBar(
+            content: Text('Aktivitas berhasil dihapus.'),
+            backgroundColor: Colors.orange,
           ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await ref.read(databaseRepositoryProvider).deleteSpraying(s.id, s);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Jadwal penyemprotan berhasil dihapus.'), backgroundColor: Colors.orange),
         );
       }
     }
@@ -478,61 +555,285 @@ class _JadwalKegiatanScreenState extends ConsumerState<JadwalKegiatanScreen> wit
   @override
   Widget build(BuildContext context) {
     final seasonsState = ref.watch(watchSeasonsProvider);
-    final selectedSeasonId = ref.watch(selectedSeasonIdProvider);
+    final fieldsState = ref.watch(watchFieldsProvider);
+    final inventoryState = ref.watch(watchStokProvider);
+    final workersState = ref.watch(watchWorkersProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Jadwal Kegiatan Tani'),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.orange,
-          tabs: const [
-            Tab(icon: Icon(Icons.grass), text: 'Pemupukan'),
-            Tab(icon: Icon(Icons.bug_report_outlined), text: 'Penyemprotan'),
-          ],
-        ),
+        title: const Text('Aktivitas Lapangan'),
       ),
       body: seasonsState.when(
         data: (seasons) {
-          final runningSeasons = seasons.where((s) => s.status == 'Berjalan').toList();
-
-          if (runningSeasons.isEmpty) {
-            return const Center(child: Text('Tidak ada musim tanam aktif berjalan. Harap buat musim tanam terlebih dahulu.'));
+          if (seasons.isEmpty) {
+            return const Center(
+              child: Text(
+                'Belum ada musim tanam. Harap buat musim tanam terlebih dahulu.',
+              ),
+            );
           }
 
-          // Auto-select first active season if none is selected or not in runningSeasons
-          final currentSeasonId = (selectedSeasonId != null && runningSeasons.any((s) => s.id == selectedSeasonId))
-              ? selectedSeasonId
-              : runningSeasons.first.id;
+          final activeSeasons = seasons;
+          final currentSeasonId = _selectedSeasonId ?? activeSeasons.first.id;
+          final selectedSeason = activeSeasons.firstWhere(
+            (s) => s.id == currentSeasonId,
+            orElse: () => activeSeasons.first,
+          );
+
+          final isCompleted = selectedSeason.status == 'Selesai';
 
           return Column(
             children: [
-              // Season Selector Dropdown
+              // Season Selector
               Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: DropdownButtonFormField<String>(
-                  value: currentSeasonId,
-                  decoration: const InputDecoration(labelText: 'Pilih Musim Tanam Aktif', prefixIcon: Icon(Icons.spa)),
-                  items: runningSeasons.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
+                  value: selectedSeason.id,
+                  decoration: const InputDecoration(
+                    labelText: 'Pilih Musim Tanam',
+                    prefixIcon: Icon(Icons.spa_outlined),
+                  ),
+                  items: activeSeasons
+                      .map((s) => DropdownMenuItem(
+                            value: s.id,
+                            child: Text(
+                                '${s.name} ${s.status == 'Selesai' ? '(Selesai)' : ''}'),
+                          ))
+                      .toList(),
                   onChanged: (val) {
-                    ref.read(selectedSeasonIdProvider.notifier).state = val;
+                    setState(() {
+                      _selectedSeasonId = val;
+                    });
                   },
                 ),
               ),
 
-              // Tabbed Content
+              // Activities List
               Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    // Tab 1: Pemupukan
-                    _buildFertilisationList(currentSeasonId),
+                child: Consumer(
+                  builder: (context, ref, child) {
+                    final activitiesState = ref.watch(watchActivitiesProvider(selectedSeason.id));
+                    final fields = fieldsState.value ?? [];
 
-                    // Tab 2: Penyemprotan
-                    _buildSprayingList(currentSeasonId),
-                  ],
+                    return activitiesState.when(
+                      data: (activities) {
+                        if (activities.isEmpty) {
+                          return const Center(
+                            child: Text('Belum ada catatan aktivitas lapangan.'),
+                          );
+                        }
+
+                        return ListView.builder(
+                          itemCount: activities.length,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          itemBuilder: (context, index) {
+                            final act = activities[index];
+
+                            // Resolve land names
+                            final fieldIds = act.fieldIds
+                                .split(',')
+                                .map((e) => e.trim())
+                                .where((e) => e.isNotEmpty)
+                                .toList();
+                            final actFields = fields.where((f) => fieldIds.contains(f.id)).toList();
+                            final lahanNames = actFields.isEmpty
+                                ? 'Lahan tidak dikenal'
+                                : actFields.map((f) => f.name).join(', ');
+
+                            final isDone = act.status == 'Dilaksanakan';
+
+                            // Determine Color & Icon based on activity type
+                            IconData iconData = Icons.task_alt;
+                            Color themeColor = Colors.grey;
+
+                            switch (act.activityType) {
+                              case 'Pemupukan':
+                                iconData = Icons.grass;
+                                themeColor = Colors.green;
+                                break;
+                              case 'Penyemprotan':
+                                iconData = Icons.bug_report_outlined;
+                                themeColor = Colors.orange;
+                                break;
+                              case 'Pengairan':
+                                iconData = Icons.water_drop_outlined;
+                                themeColor = Colors.blue;
+                                break;
+                              case 'Penyiangan':
+                                iconData = Icons.cleaning_services_outlined;
+                                themeColor = Colors.teal;
+                                break;
+                              case 'Pemasangan Mulsa':
+                                iconData = Icons.layers_outlined;
+                                themeColor = Colors.purple;
+                                break;
+                              case 'Tenaga Kerja':
+                                iconData = Icons.people_outline;
+                                themeColor = Colors.brown;
+                                break;
+                              default:
+                                iconData = Icons.task_alt;
+                                themeColor = Colors.grey;
+                            }
+
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            CircleAvatar(
+                                              backgroundColor: themeColor.withOpacity(0.12),
+                                              child: Icon(iconData, color: themeColor),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  act.activityType,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 16,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  Formatters.formatLongDate(act.date),
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                        _buildStatusBadge(act.status),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    if (act.product.isNotEmpty) ...[
+                                      Text(
+                                        act.activityType == 'Tenaga Kerja' ? 'Pekerja:' : 'Produk:',
+                                        style: const TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                      Text(
+                                        act.product,
+                                        style: const TextStyle(
+                                            fontSize: 14, fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(height: 8),
+                                    ],
+                                    Text(
+                                      act.activityType == 'Tenaga Kerja' ? 'Durasi:' : 'Dosis / Jumlah:',
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey,
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      '${act.quantity} ${act.unit}',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Lahan yang Terlibat:',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey,
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      lahanNames,
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                    if (act.description.isNotEmpty) ...[
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'Keterangan:',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                      Text(
+                                        act.description,
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ],
+                                    const Divider(height: 24),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        if (!isDone &&
+                                            act.status != 'Dibatalkan' &&
+                                            !isCompleted) ...[
+                                          ElevatedButton.icon(
+                                            icon: const Icon(Icons.check, size: 16),
+                                            label: const Text('Laksanakan'),
+                                            onPressed: () => _laksanakanActivity(act),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.green[800],
+                                              foregroundColor: Colors.white,
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 16, vertical: 8),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        if (!isCompleted) ...[
+                                          IconButton(
+                                            icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                                            onPressed: () => _showActivityDialog(
+                                              seasons,
+                                              fields,
+                                              inventoryState.value ?? [],
+                                              workersState.value ?? [],
+                                              act,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                            onPressed: () => _deleteActivity(act),
+                                          ),
+                                        ] else ...[
+                                          const Text(
+                                            'Musim Selesai (Data Dikunci)',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey,
+                                              fontStyle: FontStyle.italic,
+                                            ),
+                                          ),
+                                        ]
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                      loading: () => const Center(child: CircularProgressIndicator()),
+                      error: (err, _) => Center(child: Text('Error: $err')),
+                    );
+                  },
                 ),
               ),
             ],
@@ -541,190 +842,48 @@ class _JadwalKegiatanScreenState extends ConsumerState<JadwalKegiatanScreen> wit
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => Center(child: Text('Error: $err')),
       ),
-      floatingActionButton: seasonsState.value?.any((s) => s.status == 'Berjalan') == true
-          ? FloatingActionButton(
-              onPressed: () {
-                final running = seasonsState.value!.where((s) => s.status == 'Berjalan').toList();
-                if (running.isEmpty) return;
-                final currentSeasonId = (selectedSeasonId != null && running.any((s) => s.id == selectedSeasonId))
-                    ? selectedSeasonId
-                    : running.first.id;
-                if (_tabController.index == 0) {
-                  _showFertilisationDialog(currentSeasonId);
-                } else {
-                  _showSprayingDialog(currentSeasonId);
-                }
-              },
-              child: const Icon(Icons.add_task),
-            )
-          : null,
+      floatingActionButton: seasonsState.when(
+        data: (seasons) {
+          if (seasons.isEmpty) return null;
+          final currentSeasonId = _selectedSeasonId ?? seasons.first.id;
+          final selectedSeason = seasons.firstWhere(
+            (s) => s.id == currentSeasonId,
+            orElse: () => seasons.first,
+          );
+          if (selectedSeason.status == 'Selesai') return null; // Kunci input baru
+
+          return FloatingActionButton(
+            onPressed: () => _showActivityDialog(
+              seasons,
+              fieldsState.value ?? [],
+              inventoryState.value ?? [],
+              workersState.value ?? [],
+            ),
+            child: const Icon(Icons.add_task),
+          );
+        },
+        loading: () => null,
+        error: (err, _) => null,
+      ),
     );
   }
 
-  Widget _buildFertilisationList(String seasonId) {
-    final fertsState = ref.watch(watchFertilizationsProvider(seasonId));
+  Widget _buildStatusBadge(String status) {
+    Color color = Colors.grey;
+    if (status == 'Dilaksanakan') color = Colors.green;
+    if (status == 'Dibatalkan') color = Colors.red;
 
-    return fertsState.when(
-      data: (ferts) {
-        if (ferts.isEmpty) {
-          return const Center(child: Text('Belum ada jadwal pemupukan.'));
-        }
-
-        return ListView.builder(
-          itemCount: ferts.length,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          itemBuilder: (context, index) {
-            final f = ferts[index];
-            final isDone = f.status == 'Selesai';
-
-            return Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isDone ? Colors.grey[300] : Colors.green[100],
-                  child: Icon(Icons.check_circle_outline, color: isDone ? Colors.grey : Colors.green[800]),
-                ),
-                title: Text('${f.fertilizerName} (${f.dosage} ${f.unit})', style: TextStyle(fontWeight: FontWeight.bold, decoration: isDone ? TextDecoration.lineThrough : null)),
-                subtitle: Text('Metode: ${f.method} | HST: ${f.hst} | Tanggal: ${Formatters.formatDate(f.date)}'),
-                trailing: PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert),
-                  onSelected: (value) {
-                    if (value == 'done') {
-                      _markFertDone(f);
-                    } else if (value == 'edit') {
-                      _showFertilisationDialog(seasonId, f);
-                    } else if (value == 'delete') {
-                      _deleteFert(f);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (!isDone)
-                      const PopupMenuItem(
-                        value: 'done',
-                        child: Row(
-                          children: [
-                            Icon(Icons.check, color: Colors.green),
-                            SizedBox(width: 8),
-                            Text('Tandai Selesai'),
-                          ],
-                        ),
-                      ),
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(
-                        children: [
-                          Icon(Icons.edit, color: Colors.blue),
-                          SizedBox(width: 8),
-                          Text('Ubah'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete, color: Colors.red),
-                          SizedBox(width: 8),
-                          Text('Hapus'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, _) => Center(child: Text('Error: $err')),
-    );
-  }
-
-  Widget _buildSprayingList(String seasonId) {
-    final sprayState = ref.watch(watchSprayingsProvider(seasonId));
-
-    return sprayState.when(
-      data: (sprays) {
-        if (sprays.isEmpty) {
-          return const Center(child: Text('Belum ada jadwal penyemprotan.'));
-        }
-
-        return ListView.builder(
-          itemCount: sprays.length,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          itemBuilder: (context, index) {
-            final s = sprays[index];
-            final isDone = s.status == 'Selesai';
-
-            return Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isDone ? Colors.grey[300] : Colors.orange[100],
-                  child: Icon(Icons.coronavirus, color: isDone ? Colors.grey : Colors.orange[800]),
-                ),
-                title: Text('${s.productName} [${s.productType}]', style: TextStyle(fontWeight: FontWeight.bold, decoration: isDone ? TextDecoration.lineThrough : null)),
-                subtitle: Text('Dosis: ${s.dosage} ml/L | Target: ${s.targetPest} | Tanggal: ${Formatters.formatDate(s.date)}'),
-                trailing: PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert),
-                  onSelected: (value) {
-                    if (value == 'done') {
-                      _markSprayDone(s);
-                    } else if (value == 'edit') {
-                      _showSprayingDialog(seasonId, s);
-                    } else if (value == 'delete') {
-                      _deleteSpray(s);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (!isDone)
-                      const PopupMenuItem(
-                        value: 'done',
-                        child: Row(
-                          children: [
-                            Icon(Icons.check, color: Colors.green),
-                            SizedBox(width: 8),
-                            Text('Tandai Selesai'),
-                          ],
-                        ),
-                      ),
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(
-                        children: [
-                          Icon(Icons.edit, color: Colors.blue),
-                          SizedBox(width: 8),
-                          Text('Ubah'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete, color: Colors.red),
-                          SizedBox(width: 8),
-                          Text('Hapus'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, _) => Center(child: Text('Error: $err')),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
+      ),
     );
   }
 }
-
-// Additional dynamic providers for watch query referencing seasonId
-final watchFertilizationsProvider = StreamProvider.family<List<JadwalPemupukan>, String>((ref, seasonId) {
-  return ref.watch(databaseRepositoryProvider).watchFertilizations(seasonId);
-});
-
-final watchSprayingsProvider = StreamProvider.family<List<JadwalPenyemprotan>, String>((ref, seasonId) {
-  return ref.watch(databaseRepositoryProvider).watchSprayings(seasonId);
-});

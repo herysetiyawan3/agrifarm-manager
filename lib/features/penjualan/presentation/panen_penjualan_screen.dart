@@ -21,7 +21,12 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
   final _gradeBController = TextEditingController();
   final _gradeCController = TextEditingController();
   final _notesController = TextEditingController();
-  final _harvestedTreesController = TextEditingController();
+
+  // Search state variables
+  String _panenSearchQuery = '';
+  String _tengkulakSearchQuery = '';
+  String _salesSearchQuery = '';
+  double _perkiraanPanen = 25.0;
 
   // Tengkulak controllers
   final _buyerNameController = TextEditingController();
@@ -43,7 +48,6 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
   DateTime _date = DateTime.now();
   String _salesStatus = 'Lunas';
   String _gradeMode = 'A';
-  String _treeHarvestMode = 'all';
 
   @override
   void initState() {
@@ -59,7 +63,6 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
     _gradeBController.dispose();
     _gradeCController.dispose();
     _notesController.dispose();
-    _harvestedTreesController.dispose();
     _buyerNameController.dispose();
     _buyerPhoneController.dispose();
     _buyerAddressController.dispose();
@@ -80,7 +83,6 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
     _gradeBController.clear();
     _gradeCController.clear();
     _notesController.clear();
-    _harvestedTreesController.clear();
     _salesPriceController.clear();
     _salesWeightController.clear();
     _priceAController.clear();
@@ -93,7 +95,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
       _date = DateTime.now();
       _gradeMode = 'A';
       _salesStatus = 'Lunas';
-      _treeHarvestMode = 'all';
+      _perkiraanPanen = 25.0;
     });
   }
 
@@ -125,45 +127,41 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
       _selectedSeasonId = harvest.seasonId;
       _selectedBuyerId = harvest.buyerId;
       _weightController.text = harvest.weight.toString();
-      _gradeAController.text = harvest.gradeAWeight == harvest.gradeAWeight.toInt() ? harvest.gradeAWeight.toInt().toString() : harvest.gradeAWeight.toString();
-      _gradeBController.text = harvest.gradeBWeight == harvest.gradeBWeight.toInt() ? harvest.gradeBWeight.toInt().toString() : harvest.gradeBWeight.toString();
-      _gradeCController.text = harvest.gradeCWeight == harvest.gradeCWeight.toInt() ? harvest.gradeCWeight.toInt().toString() : harvest.gradeCWeight.toString();
+      // Menggunakan field baru beratGradeA/B/C dengan fallback untuk data lama
+      final gA = harvest.beratGradeA > 0 ? harvest.beratGradeA : harvest.gradeAWeight;
+      final gB = harvest.beratGradeB > 0 ? harvest.beratGradeB : harvest.gradeBWeight;
+      final gC = harvest.beratGradeC > 0 ? harvest.beratGradeC : harvest.gradeCWeight;
+      _gradeAController.text = gA == gA.toInt() ? gA.toInt().toString() : gA.toString();
+      _gradeBController.text = gB == gB.toInt() ? gB.toInt().toString() : gB.toString();
+      _gradeCController.text = gC == gC.toInt() ? gC.toInt().toString() : gC.toString();
       _notesController.text = harvest.notes;
-      _harvestedTreesController.text = harvest.harvestedTrees?.toString() ?? '';
       _priceAController.text = harvest.priceGradeA?.toString() ?? '';
       _priceBController.text = harvest.priceGradeB?.toString() ?? '';
       _priceCController.text = harvest.priceGradeC?.toString() ?? '';
       _date = harvest.date;
+      _perkiraanPanen = harvest.perkiraanPanen;
       
       // Determine grade mode based on values
-      if (harvest.gradeAWeight > 0 && harvest.gradeBWeight == 0 && harvest.gradeCWeight == 0) {
+      if (gA > 0 && gB == 0 && gC == 0) {
         _gradeMode = 'A';
-      } else if (harvest.gradeBWeight > 0 && harvest.gradeAWeight == 0 && harvest.gradeCWeight == 0) {
+      } else if (gB > 0 && gA == 0 && gC == 0) {
         _gradeMode = 'B';
-      } else if (harvest.gradeCWeight > 0 && harvest.gradeAWeight == 0 && harvest.gradeBWeight == 0) {
+      } else if (gC > 0 && gA == 0 && gB == 0) {
         _gradeMode = 'C';
       } else {
         _gradeMode = 'Custom';
       }
-      
-      // Determine tree harvest mode
-      final season = seasons.firstWhere((s) => s.id == harvest.seasonId, orElse: () => seasons.first);
-      if (harvest.harvestedTrees == season.seedsCount) {
-        _treeHarvestMode = 'all';
-      } else {
-        _treeHarvestMode = 'custom';
-      }
     } else {
       if (seasons.isNotEmpty) {
         _selectedSeasonId = seasons.first.id;
-        _harvestedTreesController.text = seasons.first.seedsCount.toString();
       }
       if (buyers.isNotEmpty) _selectedBuyerId = buyers.first.id;
 
-      _weightController.text = '';
+      _weightController.text = '0';
       _gradeAController.text = '0';
       _gradeBController.text = '0';
       _gradeCController.text = '0';
+      _perkiraanPanen = 25.0;
     }
 
     showModalBottomSheet(
@@ -173,23 +171,6 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final selectedSeason = seasons.firstWhere(
-              (s) => s.id == _selectedSeasonId,
-              orElse: () => seasons.isNotEmpty
-                  ? seasons.first
-                  : MusimTanam(
-                      id: '',
-                      name: '',
-                      fieldId: '',
-                      cropId: '',
-                      variety: '',
-                      plantingArea: 0,
-                      seedsCount: 0,
-                      seedingDate: DateTime.now(),
-                      plantingDate: DateTime.now(),
-                      status: '',
-                    ),
-            );
             return Padding(
               padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 24, left: 20, right: 20),
               child: SingleChildScrollView(
@@ -204,7 +185,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                       DropdownButtonFormField<String>(
                         value: _selectedSeasonId,
                         decoration: const InputDecoration(labelText: 'Pilih Musim Tanam / Lahan', prefixIcon: Icon(Icons.spa)),
-                        items: seasons.map((s) {
+                        items: seasons.where((s) => s.status != 'Selesai' || s.id == _selectedSeasonId).map((s) {
                           final field = fields.firstWhere(
                             (f) => f.id == s.fieldId,
                             orElse: () => Lahan(id: '', name: 'Umum', area: 0, unit: 'm²', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''),
@@ -214,95 +195,36 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                         onChanged: (val) {
                           setDialogState(() {
                             _selectedSeasonId = val;
-                            if (_treeHarvestMode == 'all' && val != null) {
-                              final newSeason = seasons.firstWhere((s) => s.id == val, orElse: () => seasons.first);
-                              _harvestedTreesController.text = newSeason.seedsCount.toString();
-                            }
                           });
                         },
                         validator: (value) => value == null ? 'Musim tanam wajib dipilih' : null,
                       ),
                       const SizedBox(height: 12),
-                      const Text('Jumlah Pohon Terpanen:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          ChoiceChip(
-                            label: Text('Panen Semua (${selectedSeason.seedsCount} Pohon)'),
-                            selected: _treeHarvestMode == 'all',
-                            selectedColor: Colors.green[800],
-                            labelStyle: TextStyle(
-                              color: _treeHarvestMode == 'all' ? Colors.white : Colors.black87,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            onSelected: (selected) {
-                              if (selected) {
-                                setDialogState(() {
-                                  _treeHarvestMode = 'all';
-                                  _harvestedTreesController.text = selectedSeason.seedsCount.toString();
-                                });
-                              }
-                            },
-                          ),
-                          const SizedBox(width: 12),
-                          ChoiceChip(
-                            label: const Text('Kustom'),
-                            selected: _treeHarvestMode == 'custom',
-                            selectedColor: Colors.green[800],
-                            labelStyle: TextStyle(
-                              color: _treeHarvestMode == 'custom' ? Colors.white : Colors.black87,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            onSelected: (selected) {
-                              if (selected) {
-                                setDialogState(() {
-                                  _treeHarvestMode = 'custom';
-                                });
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _harvestedTreesController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Jumlah Pohon Terpanen',
-                          prefixIcon: Icon(Icons.nature_outlined),
-                        ),
-                        enabled: _treeHarvestMode == 'custom',
-                        validator: (value) => (value == null || value.isEmpty) ? 'Jumlah pohon wajib diisi' : null,
-                      ),
-                      const SizedBox(height: 12),
                       TextFormField(
                         controller: _weightController,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Total Berat (Kg)', prefixIcon: Icon(Icons.scale)),
-                        validator: (value) => value == null || value.isEmpty ? 'Berat wajib diisi' : null,
+                        decoration: const InputDecoration(labelText: 'Total Berat (Kg) (Otomatis)', prefixIcon: Icon(Icons.scale)),
+                        enabled: false, // Total berat dihitung otomatis dari Grade A + B + C
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<double>(
+                        value: _perkiraanPanen,
+                        decoration: const InputDecoration(
+                          labelText: 'Perkiraan Hasil Panen (%)',
+                          prefixIcon: Icon(Icons.percent),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 25.0, child: Text('25%')),
+                          DropdownMenuItem(value: 50.0, child: Text('50%')),
+                          DropdownMenuItem(value: 75.0, child: Text('75%')),
+                          DropdownMenuItem(value: 100.0, child: Text('100%')),
+                        ],
                         onChanged: (val) {
-                          final totalVal = val;
-                          setDialogState(() {
-                            if (_gradeMode == 'A') {
-                              _gradeAController.text = totalVal.isNotEmpty ? totalVal : '0';
-                              _gradeBController.text = '0';
-                              _gradeCController.text = '0';
-                            } else if (_gradeMode == 'B') {
-                              _gradeAController.text = '0';
-                              _gradeBController.text = totalVal.isNotEmpty ? totalVal : '0';
-                              _gradeCController.text = '0';
-                            } else if (_gradeMode == 'C') {
-                              _gradeAController.text = '0';
-                              _gradeBController.text = '0';
-                              _gradeCController.text = totalVal.isNotEmpty ? totalVal : '0';
-                            } else if (_gradeMode == 'Custom') {
-                              final total = double.tryParse(totalVal) ?? 0.0;
-                              final a = double.tryParse(_gradeAController.text) ?? 0.0;
-                              final b = double.tryParse(_gradeBController.text) ?? 0.0;
-                              final c = total - a - b;
-                              _gradeCController.text = c >= 0 ? (c == c.toInt() ? c.toInt().toString() : c.toStringAsFixed(1)) : '0';
-                            }
-                          });
+                          if (val != null) {
+                            setDialogState(() {
+                              _perkiraanPanen = val;
+                            });
+                          }
                         },
                       ),
                       const SizedBox(height: 12),
@@ -324,10 +246,10 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                                 if (selected) {
                                   setDialogState(() {
                                     _gradeMode = 'A';
-                                    final totalVal = _weightController.text;
-                                    _gradeAController.text = totalVal.isNotEmpty ? totalVal : '0';
                                     _gradeBController.text = '0';
                                     _gradeCController.text = '0';
+                                    final a = double.tryParse(_gradeAController.text) ?? 0.0;
+                                    _weightController.text = a == a.toInt() ? a.toInt().toString() : a.toString();
                                   });
                                 }
                               },
@@ -345,10 +267,10 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                                 if (selected) {
                                   setDialogState(() {
                                     _gradeMode = 'B';
-                                    final totalVal = _weightController.text;
                                     _gradeAController.text = '0';
-                                    _gradeBController.text = totalVal.isNotEmpty ? totalVal : '0';
                                     _gradeCController.text = '0';
+                                    final b = double.tryParse(_gradeBController.text) ?? 0.0;
+                                    _weightController.text = b == b.toInt() ? b.toInt().toString() : b.toString();
                                   });
                                 }
                               },
@@ -366,10 +288,10 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                                 if (selected) {
                                   setDialogState(() {
                                     _gradeMode = 'C';
-                                    final totalVal = _weightController.text;
                                     _gradeAController.text = '0';
                                     _gradeBController.text = '0';
-                                    _gradeCController.text = totalVal.isNotEmpty ? totalVal : '0';
+                                    final c = double.tryParse(_gradeCController.text) ?? 0.0;
+                                    _weightController.text = c == c.toInt() ? c.toInt().toString() : c.toString();
                                   });
                                 }
                               },
@@ -387,9 +309,6 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                                 if (selected) {
                                   setDialogState(() {
                                     _gradeMode = 'Custom';
-                                    _gradeAController.text = '0';
-                                    _gradeBController.text = '0';
-                                    _gradeCController.text = _weightController.text.isNotEmpty ? _weightController.text : '0';
                                   });
                                 }
                               },
@@ -405,19 +324,19 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                               controller: _gradeAController,
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(labelText: 'Grade A (Kg)', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-                              enabled: _gradeMode == 'Custom',
+                              enabled: _gradeMode == 'A' || _gradeMode == 'Custom',
                               onTap: () {
                                 if (_gradeAController.text == '0') {
                                   _gradeAController.clear();
                                 }
                               },
                               onChanged: (val) {
-                                final total = double.tryParse(_weightController.text) ?? 0.0;
                                 final a = double.tryParse(val) ?? 0.0;
                                 final b = double.tryParse(_gradeBController.text) ?? 0.0;
-                                final c = total - a - b;
+                                final c = double.tryParse(_gradeCController.text) ?? 0.0;
+                                final total = a + b + c;
                                 setDialogState(() {
-                                  _gradeCController.text = c >= 0 ? (c == c.toInt() ? c.toInt().toString() : c.toStringAsFixed(1)) : '0';
+                                  _weightController.text = total == total.toInt() ? total.toInt().toString() : total.toString();
                                 });
                               },
                             ),
@@ -428,19 +347,19 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                               controller: _gradeBController,
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(labelText: 'Grade B (Kg)', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-                              enabled: _gradeMode == 'Custom',
+                              enabled: _gradeMode == 'B' || _gradeMode == 'Custom',
                               onTap: () {
                                 if (_gradeBController.text == '0') {
                                   _gradeBController.clear();
                                 }
                               },
                               onChanged: (val) {
-                                final total = double.tryParse(_weightController.text) ?? 0.0;
                                 final a = double.tryParse(_gradeAController.text) ?? 0.0;
                                 final b = double.tryParse(val) ?? 0.0;
-                                final c = total - a - b;
+                                final c = double.tryParse(_gradeCController.text) ?? 0.0;
+                                final total = a + b + c;
                                 setDialogState(() {
-                                  _gradeCController.text = c >= 0 ? (c == c.toInt() ? c.toInt().toString() : c.toStringAsFixed(1)) : '0';
+                                  _weightController.text = total == total.toInt() ? total.toInt().toString() : total.toString();
                                 });
                               },
                             ),
@@ -451,7 +370,21 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                               controller: _gradeCController,
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(labelText: 'Grade C (Kg)', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-                              enabled: false,
+                              enabled: _gradeMode == 'C' || _gradeMode == 'Custom',
+                              onTap: () {
+                                if (_gradeCController.text == '0') {
+                                  _gradeCController.clear();
+                                }
+                              },
+                              onChanged: (val) {
+                                final a = double.tryParse(_gradeAController.text) ?? 0.0;
+                                final b = double.tryParse(_gradeBController.text) ?? 0.0;
+                                final c = double.tryParse(val) ?? 0.0;
+                                final total = a + b + c;
+                                setDialogState(() {
+                                  _weightController.text = total == total.toInt() ? total.toInt().toString() : total.toString();
+                                });
+                              },
                             ),
                           ),
                         ],
@@ -593,19 +526,11 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                         onPressed: () async {
                           if (!_formKey.currentState!.validate()) return;
                           
-                          final weight = double.tryParse(_weightController.text) ?? 0.0;
                           final gradeA = double.tryParse(_gradeAController.text) ?? 0.0;
                           final gradeB = double.tryParse(_gradeBController.text) ?? 0.0;
                           final gradeC = double.tryParse(_gradeCController.text) ?? 0.0;
+                          final weight = gradeA + gradeB + gradeC; // Total berat dihitung otomatis
                           final notes = _notesController.text.trim();
-
-                          if (gradeA + gradeB > weight) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                              content: Text('Error: Jumlah Grade A + Grade B tidak boleh melebihi Total Berat!'),
-                              backgroundColor: Colors.red,
-                            ));
-                            return;
-                          }
 
                           final buyer = buyers.firstWhere((b) => b.id == _selectedBuyerId);
                           final priceA = double.tryParse(_priceAController.text) ?? 0.0;
@@ -615,6 +540,10 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                           final totalSales = (gradeA * priceA) + (gradeB * priceB) + (gradeC * priceC);
                           final averagePrice = weight > 0 ? (totalSales / weight) : 0.0;
 
+                          // Aturan Bisnis Utama: Menentukan statusPeriode berdasarkan perkiraanPanen
+                          // Jika perkiraanPanen >= 100%, statusPeriode adalah 'Selesai', jika tidak maka 'Aktif'
+                          final statusPeriode = _perkiraanPanen >= 100.0 ? 'Selesai' : 'Aktif';
+
                           final data = Panen(
                             id: harvest?.id ?? '',
                             seasonId: _selectedSeasonId!,
@@ -623,13 +552,17 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                             gradeAWeight: gradeA,
                             gradeBWeight: gradeB,
                             gradeCWeight: gradeC,
+                            beratGradeA: gradeA,
+                            beratGradeB: gradeB,
+                            beratGradeC: gradeC,
                             fruitsCount: 0,
                             notes: notes,
                             buyerId: buyer.id,
                             buyerName: buyer.name,
                             pricePerKg: averagePrice,
                             totalPrice: totalSales,
-                            harvestedTrees: int.tryParse(_harvestedTreesController.text),
+                            perkiraanPanen: _perkiraanPanen,
+                            statusPeriode: statusPeriode,
                             priceGradeA: priceA > 0 ? priceA : null,
                             priceGradeB: priceB > 0 ? priceB : null,
                             priceGradeC: priceC > 0 ? priceC : null,
@@ -814,7 +747,7 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
                       DropdownButtonFormField<String>(
                         value: _selectedSeasonId,
                         decoration: const InputDecoration(labelText: 'Pilih Musim Tanam / Lahan', prefixIcon: Icon(Icons.spa)),
-                        items: seasons.map((s) {
+                        items: seasons.where((s) => s.status != 'Selesai' || s.id == _selectedSeasonId).map((s) {
                           final field = fields.firstWhere(
                             (f) => f.id == s.fieldId,
                             orElse: () => Lahan(id: '', name: 'Umum', area: 0, unit: 'm²', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''),
@@ -1067,104 +1000,183 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
           // TAB 1: PANEN
           harvestsState.when(
             data: (harvests) {
-              if (harvests.isEmpty) {
-                return const Center(child: Text('Belum ada catatan panen.'));
-              }
+              final query = _panenSearchQuery.toLowerCase();
+              final filteredHarvests = harvests.where((h) {
+                if (query.isEmpty) return true;
+                final season = seasonsState.value?.firstWhere(
+                  (s) => s.id == h.seasonId,
+                  orElse: () => MusimTanam(id: '', name: '', fieldId: '', cropId: '', variety: '', plantingArea: 0, seedsCount: 0, seedingDate: DateTime.now(), plantingDate: DateTime.now(), status: ''),
+                );
+                final field = fieldsState.value?.firstWhere(
+                  (f) => f.id == season?.fieldId,
+                  orElse: () => Lahan(id: '', name: '', area: 0, unit: '', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''),
+                );
+                final lahanName = field?.name.toLowerCase() ?? '';
+                final buyerName = h.buyerName?.toLowerCase() ?? '';
+                final seasonName = season?.name.toLowerCase() ?? '';
+                return lahanName.contains(query) || buyerName.contains(query) || seasonName.contains(query);
+              }).toList();
 
-              return ListView.builder(
-                itemCount: harvests.length,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                itemBuilder: (context, index) {
-                  final h = harvests[index];
-                  final season = seasonsState.value?.firstWhere((s) => s.id == h.seasonId, orElse: () => MusimTanam(id: '', name: 'Musim Tanam', fieldId: '', cropId: '', variety: '', plantingArea: 0, seedsCount: 0, seedingDate: DateTime.now(), plantingDate: DateTime.now(), status: ''));
-                  final seasonName = season?.name ?? 'Musim Tanam';
-                  final field = fieldsState.value?.firstWhere((f) => f.id == season?.fieldId, orElse: () => Lahan(id: '', name: '-', area: 0, unit: '', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''));
-                  final lahanName = field?.name ?? '-';
-                  
-                  return Card(
-                    elevation: 2,
-                    shadowColor: Colors.black12,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text("$seasonName (Lahan: $lahanName)", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                              ),
-                              Text(Formatters.formatDate(h.date), style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                              const SizedBox(width: 8),
-                              PopupMenuButton<String>(
-                                icon: const Icon(Icons.more_vert, size: 20),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                                onSelected: (value) {
-                                  if (value == 'edit') {
-                                    _showPanenDialog(seasonsState.value ?? [], fieldsState.value ?? [], buyersState.value ?? [], harvest: h);
-                                  } else if (value == 'delete') {
-                                    _confirmDeletePanen(h.id);
-                                  }
-                                },
-                                itemBuilder: (context) => [
-                                  const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
-                                  const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text('Hapus', style: TextStyle(color: Colors.red))])),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('Total Berat: ${h.weight} Kg', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                              Text('Pohon: ${h.harvestedTrees ?? 0} Pohon', style: const TextStyle(fontSize: 13, color: Colors.grey)),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: [
-                              if (h.gradeAWeight > 0 || (h.gradeAWeight == 0 && h.gradeBWeight == 0 && h.gradeCWeight == 0))
-                                _buildGradeLabel('Grade A: ${h.gradeAWeight} kg${h.priceGradeA != null && h.priceGradeA! > 0 ? " @ ${Formatters.formatRupiah(h.priceGradeA!)}" : ""}'),
-                              if (h.gradeBWeight > 0)
-                                _buildGradeLabel('Grade B: ${h.gradeBWeight} kg${h.priceGradeB != null && h.priceGradeB! > 0 ? " @ ${Formatters.formatRupiah(h.priceGradeB!)}" : ""}'),
-                              if (h.gradeCWeight > 0)
-                                _buildGradeLabel('Grade C: ${h.gradeCWeight} kg${h.priceGradeC != null && h.priceGradeC! > 0 ? " @ ${Formatters.formatRupiah(h.priceGradeC!)}" : ""}'),
-                            ],
-                          ),
-                          if (h.buyerName != null && h.buyerName!.isNotEmpty) ...[
-                            const Divider(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(Icons.handshake_outlined, size: 16, color: Colors.orange[800]),
-                                    const SizedBox(width: 4),
-                                    Text('Terjual ke: ${h.buyerName}', style: TextStyle(color: Colors.orange[900], fontSize: 12, fontWeight: FontWeight.w500)),
-                                  ],
-                                ),
-                                Text(
-                                  'Rp ${Formatters.formatRupiah(h.totalPrice ?? 0.0)}',
-                                  style: TextStyle(color: Colors.green[800], fontSize: 13, fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                          ],
-                          if (h.notes.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Text('Catatan: ${h.notes}', style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey)),
-                          ]
-                        ],
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Cari Panen (Tengkulak / Lahan)...',
+                        prefixIcon: Icon(Icons.search),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
+                      onChanged: (val) {
+                        setState(() {
+                          _panenSearchQuery = val;
+                        });
+                      },
                     ),
-                  );
-                },
+                  ),
+                  Expanded(
+                    child: filteredHarvests.isEmpty
+                        ? const Center(child: Text('Belum ada catatan panen yang cocok.'))
+                        : ListView.builder(
+                            itemCount: filteredHarvests.length,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            itemBuilder: (context, index) {
+                              final h = filteredHarvests[index];
+                              final season = seasonsState.value?.firstWhere((s) => s.id == h.seasonId, orElse: () => MusimTanam(id: '', name: 'Musim Tanam', fieldId: '', cropId: '', variety: '', plantingArea: 0, seedsCount: 0, seedingDate: DateTime.now(), plantingDate: DateTime.now(), status: ''));
+                              final seasonName = season?.name ?? 'Musim Tanam';
+                              final field = fieldsState.value?.firstWhere((f) => f.id == season?.fieldId, orElse: () => Lahan(id: '', name: '-', area: 0, unit: '', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''));
+                              final lahanName = field?.name ?? '-';
+                              
+                              return Card(
+                                elevation: 2,
+                                shadowColor: Colors.black12,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text("$seasonName (Lahan: $lahanName)", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                                          ),
+                                          Text(Formatters.formatDate(h.date), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                          const SizedBox(width: 8),
+                                          Builder(
+                                            builder: (context) {
+                                              final hSeason = seasonsState.value?.firstWhere(
+                                                (se) => se.id == h.seasonId,
+                                                orElse: () => MusimTanam(id: '', name: '', fieldId: '', cropId: '', variety: '', plantingArea: 0, seedsCount: 0, seedingDate: DateTime.now(), plantingDate: DateTime.now(), status: ''),
+                                              );
+                                              final hSeasonCompleted = hSeason?.status == 'Selesai';
+                                              if (hSeasonCompleted) {
+                                                return const Padding(
+                                                  padding: EdgeInsets.symmetric(horizontal: 8.0),
+                                                  child: Text('Musim Selesai', style: TextStyle(fontSize: 11, color: Colors.grey, fontStyle: FontStyle.italic)),
+                                                );
+                                              }
+                                              return PopupMenuButton<String>(
+                                                icon: const Icon(Icons.more_vert, size: 20),
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints(),
+                                                onSelected: (value) {
+                                                  if (value == 'edit') {
+                                                    _showPanenDialog(seasonsState.value ?? [], fieldsState.value ?? [], buyersState.value ?? [], harvest: h);
+                                                  } else if (value == 'delete') {
+                                                    _confirmDeletePanen(h.id);
+                                                  }
+                                                },
+                                                itemBuilder: (context) => [
+                                                  const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                                                  const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text('Hapus', style: TextStyle(color: Colors.red))])),
+                                                ],
+                                              );
+                                            }
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          InkWell(
+                                            onTap: () => _showGradeBreakdownBottomSheet(h),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              decoration: BoxDecoration(
+                                                color: Colors.green[50],
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: Colors.green[200]!),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(Icons.scale, size: 14, color: Colors.green),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    'Total Berat: ${h.weight} Kg ⓘ',
+                                                    style: TextStyle(
+                                                      fontSize: 14,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.green[900],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          Text(
+                                            'Progress: ${h.perkiraanPanen.toInt()}% (${h.statusPeriode})',
+                                            style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.w500),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 6,
+                                        children: [
+                                          if (h.beratGradeA > 0 || (h.beratGradeA == 0 && h.beratGradeB == 0 && h.beratGradeC == 0))
+                                            _buildGradeLabel('Grade A: ${h.beratGradeA} kg${h.priceGradeA != null && h.priceGradeA! > 0 ? " • ${Formatters.formatRupiah(h.priceGradeA!)}" : ""}'),
+                                          if (h.beratGradeB > 0)
+                                            _buildGradeLabel('Grade B: ${h.beratGradeB} kg${h.priceGradeB != null && h.priceGradeB! > 0 ? " • ${Formatters.formatRupiah(h.priceGradeB!)}" : ""}'),
+                                          if (h.beratGradeC > 0)
+                                            _buildGradeLabel('Grade C: ${h.beratGradeC} kg${h.priceGradeC != null && h.priceGradeC! > 0 ? " • ${Formatters.formatRupiah(h.priceGradeC!)}" : ""}'),
+                                        ],
+                                      ),
+                                      if (h.buyerName != null && h.buyerName!.isNotEmpty) ...[
+                                        const Divider(height: 16),
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Icon(Icons.handshake_outlined, size: 16, color: Colors.orange[800]),
+                                                const SizedBox(width: 4),
+                                                Text('Terjual ke: ${h.buyerName}', style: TextStyle(color: Colors.orange[900], fontSize: 12, fontWeight: FontWeight.w500)),
+                                              ],
+                                            ),
+                                            Text(
+                                              'Rp ${Formatters.formatRupiah(h.totalPrice ?? 0.0)}',
+                                              style: TextStyle(color: Colors.green[800], fontSize: 13, fontWeight: FontWeight.bold),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                      if (h.notes.isNotEmpty) ...[
+                                        const SizedBox(height: 8),
+                                        Text('Catatan: ${h.notes}', style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey)),
+                                      ]
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -1174,55 +1186,82 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
           // TAB 2: TENGKULAK
           buyersState.when(
             data: (buyers) {
-              if (buyers.isEmpty) {
-                return const Center(child: Text('Belum ada data tengkulak / pembeli.'));
-              }
+              final query = _tengkulakSearchQuery.toLowerCase();
+              final filteredBuyers = buyers.where((b) {
+                if (query.isEmpty) return true;
+                return b.name.toLowerCase().contains(query) ||
+                    b.region.toLowerCase().contains(query) ||
+                    b.commodityBought.toLowerCase().contains(query);
+              }).toList();
 
-              return ListView.builder(
-                itemCount: buyers.length,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                itemBuilder: (context, index) {
-                  final b = buyers[index];
-                  return Card(
-                    elevation: 2,
-                    shadowColor: Colors.black12,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      leading: CircleAvatar(
-                        radius: 24,
-                        backgroundColor: Colors.green[50], 
-                        child: Icon(Icons.person, color: Colors.green[800])
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Cari Tengkulak...',
+                        prefixIcon: Icon(Icons.search),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
-                      title: Text(b.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 4.0),
-                        child: Text(
-                          'WhatsApp: ${b.phone}\nWilayah: ${b.region} • Beli: ${b.commodityBought}',
-                          style: TextStyle(color: Colors.grey[600], height: 1.3),
-                        ),
-                      ),
-                      isThreeLine: true,
-                      trailing: PopupMenuButton<String>(
-                        icon: const Icon(Icons.more_vert),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        onSelected: (value) {
-                          if (value == 'edit') {
-                            _showTengkulakDialog(buyer: b);
-                          } else if (value == 'delete') {
-                            _confirmDeleteBuyer(b.id);
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
-                          const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text('Hapus', style: TextStyle(color: Colors.red))])),
-                        ],
-                      ),
+                      onChanged: (val) {
+                        setState(() {
+                          _tengkulakSearchQuery = val;
+                        });
+                      },
                     ),
-                  );
-                },
+                  ),
+                  Expanded(
+                    child: filteredBuyers.isEmpty
+                        ? const Center(child: Text('Belum ada data tengkulak yang cocok.'))
+                        : ListView.builder(
+                            itemCount: filteredBuyers.length,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            itemBuilder: (context, index) {
+                              final b = filteredBuyers[index];
+                              return Card(
+                                elevation: 2,
+                                shadowColor: Colors.black12,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  leading: CircleAvatar(
+                                    radius: 24,
+                                    backgroundColor: Colors.green[50], 
+                                    child: Icon(Icons.person, color: Colors.green[800])
+                                  ),
+                                  title: Text(b.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 4.0),
+                                    child: Text(
+                                      'WhatsApp: ${b.phone}\nWilayah: ${b.region} • Beli: ${b.commodityBought}',
+                                      style: TextStyle(color: Colors.grey[600], height: 1.3),
+                                    ),
+                                  ),
+                                  isThreeLine: true,
+                                  trailing: PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onSelected: (value) {
+                                      if (value == 'edit') {
+                                        _showTengkulakDialog(buyer: b);
+                                      } else if (value == 'delete') {
+                                        _confirmDeleteBuyer(b.id);
+                                      }
+                                    },
+                                    itemBuilder: (context) => [
+                                      const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                                      const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text('Hapus', style: TextStyle(color: Colors.red))])),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -1232,111 +1271,196 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
           // TAB 3: PENJUALAN
           salesState.when(
             data: (sales) {
-              if (sales.isEmpty) {
-                return const Center(child: Text('Belum ada riwayat transaksi penjualan.'));
-              }
+              final query = _salesSearchQuery.toLowerCase();
+              final filteredSales = sales.where((s) {
+                if (query.isEmpty) return true;
+                final season = seasonsState.value?.firstWhere(
+                  (se) => se.id == s.seasonId,
+                  orElse: () => MusimTanam(id: '', name: '', fieldId: '', cropId: '', variety: '', plantingArea: 0, seedsCount: 0, seedingDate: DateTime.now(), plantingDate: DateTime.now(), status: ''),
+                );
+                final field = fieldsState.value?.firstWhere(
+                  (f) => f.id == season?.fieldId,
+                  orElse: () => Lahan(id: '', name: '', area: 0, unit: '', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''),
+                );
+                final lahanName = field?.name.toLowerCase() ?? '';
+                final buyerName = s.buyerName.toLowerCase();
+                final seasonName = s.seasonName.toLowerCase();
+                final docId = s.id.toLowerCase();
+                return lahanName.contains(query) || buyerName.contains(query) || seasonName.contains(query) || docId.contains(query);
+              }).toList();
 
-              return ListView.builder(
-                itemCount: sales.length,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                itemBuilder: (context, index) {
-                  final s = sales[index];
-                  final isLunas = s.status == 'Lunas';
-
-                  return Card(
-                    elevation: 2,
-                    shadowColor: Colors.black12,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(s.buyerName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                              ),
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: isLunas ? Colors.green[50] : Colors.red[50],
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(s.status, style: TextStyle(color: isLunas ? Colors.green[800] : Colors.red[800], fontSize: 11, fontWeight: FontWeight.bold)),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  PopupMenuButton<String>(
-                                    icon: const Icon(Icons.more_vert, size: 20),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    onSelected: (value) {
-                                      if (value == 'edit') {
-                                        _showPenjualanDialog(seasonsState.value ?? [], buyersState.value ?? [], fieldsState.value ?? [], sale: s);
-                                      } else if (value == 'delete') {
-                                        _confirmDeleteSale(s.id);
-                                      }
-                                    },
-                                    itemBuilder: (context) => [
-                                      const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
-                                      const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text('Hapus', style: TextStyle(color: Colors.red))])),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ],
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            decoration: const InputDecoration(
+                              labelText: 'Cari Penjualan (Tengkulak / Lahan / ID)...',
+                              prefixIcon: Icon(Icons.search),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            onChanged: (val) {
+                              setState(() {
+                                _salesSearchQuery = val;
+                              });
+                            },
                           ),
-                          const SizedBox(height: 6),
-                          Builder(
-                            builder: (context) {
-                              final season = seasonsState.value?.firstWhere((se) => se.id == s.seasonId, orElse: () => MusimTanam(id: '', name: 'Musim', fieldId: '', cropId: '', variety: '', plantingArea: 0, seedsCount: 0, seedingDate: DateTime.now(), plantingDate: DateTime.now(), status: ''));
-                              final field = fieldsState.value?.firstWhere((f) => f.id == season?.fieldId, orElse: () => Lahan(id: '', name: '-', area: 0, unit: '', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''));
-                              final lahanName = field?.name ?? '-';
-                              return Text('Lahan: $lahanName | Musim: ${s.seasonName} | Tanggal: ${Formatters.formatDate(s.date)}', style: const TextStyle(fontSize: 12, color: Colors.grey));
-                            }
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[300]!),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          const Divider(height: 18),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('Jumlah: ${s.weight} Kg @ ${Formatters.formatRupiah(s.pricePerKg)}/Kg'),
-                              Text(Formatters.formatRupiah(s.totalPrice), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
-                            ],
-                          ),
-                          if (s.priceGradeA != null || s.priceGradeB != null || s.priceGradeC != null) ...[
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                if (s.priceGradeA != null && s.priceGradeA! > 0)
-                                  _buildGradeLabel('A: @ ${Formatters.formatRupiah(s.priceGradeA!)}'),
-                                if (s.priceGradeB != null && s.priceGradeB! > 0)
-                                  _buildGradeLabel('B: @ ${Formatters.formatRupiah(s.priceGradeB!)}'),
-                                if (s.priceGradeC != null && s.priceGradeC! > 0)
-                                  _buildGradeLabel('C: @ ${Formatters.formatRupiah(s.priceGradeC!)}'),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: ref.watch(salesFilterProvider),
+                              icon: const Icon(Icons.sort),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  ref.read(salesFilterProvider.notifier).state = val;
+                                }
+                              },
+                              items: const [
+                                DropdownMenuItem(value: 'date_desc', child: Text('Terbaru')),
+                                DropdownMenuItem(value: 'date_asc', child: Text('Terlama')),
+                                DropdownMenuItem(value: 'price_desc', child: Text('Nominal Terbesar')),
+                                DropdownMenuItem(value: 'price_asc', child: Text('Nominal Terkecil')),
+                                DropdownMenuItem(value: 'weight_desc', child: Text('Berat Terbesar')),
+                                DropdownMenuItem(value: 'weight_asc', child: Text('Berat Terkecil')),
                               ],
                             ),
-                          ],
-                          if (!isLunas) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Dibayar: ${Formatters.formatRupiah(s.amountPaid)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                Text('Piutang: ${Formatters.formatRupiah(s.remainingDebt)}', style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold)),
-                              ],
-                            )
-                          ],
-                        ],
-                      ),
+                          ),
+                        ),
+                      ],
                     ),
-                  );
-                },
+                  ),
+                  Expanded(
+                    child: filteredSales.isEmpty
+                        ? const Center(child: Text('Belum ada transaksi penjualan yang cocok.'))
+                        : ListView.builder(
+                            itemCount: filteredSales.length,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            itemBuilder: (context, index) {
+                              final s = filteredSales[index];
+                              final isLunas = s.status == 'Lunas';
+
+                              return Card(
+                                elevation: 2,
+                                shadowColor: Colors.black12,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(s.buyerName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                          ),
+                                          Row(
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: isLunas ? Colors.green[50] : Colors.red[50],
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: Text(s.status, style: TextStyle(color: isLunas ? Colors.green[800] : Colors.red[800], fontSize: 11, fontWeight: FontWeight.bold)),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Builder(
+                                                builder: (context) {
+                                                  final sSeason = seasonsState.value?.firstWhere(
+                                                    (se) => se.id == s.seasonId,
+                                                    orElse: () => MusimTanam(id: '', name: '', fieldId: '', cropId: '', variety: '', plantingArea: 0, seedsCount: 0, seedingDate: DateTime.now(), plantingDate: DateTime.now(), status: ''),
+                                                  );
+                                                  final sSeasonCompleted = sSeason?.status == 'Selesai';
+                                                  if (sSeasonCompleted) {
+                                                    return const Padding(
+                                                      padding: EdgeInsets.symmetric(horizontal: 8.0),
+                                                      child: Text('Musim Selesai', style: TextStyle(fontSize: 11, color: Colors.grey, fontStyle: FontStyle.italic)),
+                                                    );
+                                                  }
+                                                  return PopupMenuButton<String>(
+                                                    icon: const Icon(Icons.more_vert, size: 20),
+                                                    padding: EdgeInsets.zero,
+                                                    constraints: const BoxConstraints(),
+                                                    onSelected: (value) {
+                                                      if (value == 'edit') {
+                                                        _showPenjualanDialog(seasonsState.value ?? [], buyersState.value ?? [], fieldsState.value ?? [], sale: s);
+                                                      } else if (value == 'delete') {
+                                                        _confirmDeleteSale(s.id);
+                                                      }
+                                                    },
+                                                    itemBuilder: (context) => [
+                                                      const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                                                      const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text('Hapus', style: TextStyle(color: Colors.red))])),
+                                                    ],
+                                                  );
+                                                }
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Builder(
+                                        builder: (context) {
+                                          final season = seasonsState.value?.firstWhere((se) => se.id == s.seasonId, orElse: () => MusimTanam(id: '', name: 'Musim', fieldId: '', cropId: '', variety: '', plantingArea: 0, seedsCount: 0, seedingDate: DateTime.now(), plantingDate: DateTime.now(), status: ''));
+                                          final field = fieldsState.value?.firstWhere((f) => f.id == season?.fieldId, orElse: () => Lahan(id: '', name: '-', area: 0, unit: '', locationGps: '', address: '', soilType: '', status: '', waterSource: '', notes: ''));
+                                          final lahanName = field?.name ?? '-';
+                                          return Text('Lahan: $lahanName | Musim: ${s.seasonName} | Tanggal: ${Formatters.formatLongDate(s.date)}', style: const TextStyle(fontSize: 12, color: Colors.grey));
+                                        }
+                                      ),
+                                      const Divider(height: 18),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text('Jumlah: ${s.weight} Kg • ${Formatters.formatRupiah(s.pricePerKg)}/Kg'),
+                                          Text(Formatters.formatRupiah(s.totalPrice), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
+                                        ],
+                                      ),
+                                      if (s.priceGradeA != null || s.priceGradeB != null || s.priceGradeC != null) ...[
+                                        const SizedBox(height: 6),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 4,
+                                          children: [
+                                            if (s.priceGradeA != null && s.priceGradeA! > 0)
+                                              _buildGradeLabel('A: ${Formatters.formatRupiah(s.priceGradeA!)}/Kg'),
+                                            if (s.priceGradeB != null && s.priceGradeB! > 0)
+                                              _buildGradeLabel('B: ${Formatters.formatRupiah(s.priceGradeB!)}/Kg'),
+                                            if (s.priceGradeC != null && s.priceGradeC! > 0)
+                                              _buildGradeLabel('C: ${Formatters.formatRupiah(s.priceGradeC!)}/Kg'),
+                                          ],
+                                        ),
+                                      ],
+                                      if (!isLunas) ...[
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text('Dibayar: ${Formatters.formatRupiah(s.amountPaid)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                            Text('Piutang: ${Formatters.formatRupiah(s.remainingDebt)}', style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold)),
+                                          ],
+                                        )
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -1380,6 +1504,129 @@ class _PanenPenjualanScreenState extends ConsumerState<PanenPenjualanScreen> wit
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
       child: Text(text, style: TextStyle(color: Colors.green[800], fontSize: 11, fontWeight: FontWeight.bold)),
+    );
+  }
+
+  void _showGradeBreakdownBottomSheet(Panen h) {
+    final gA = h.beratGradeA > 0 ? h.beratGradeA : h.gradeAWeight;
+    final gB = h.beratGradeB > 0 ? h.beratGradeB : h.gradeBWeight;
+    final gC = h.beratGradeC > 0 ? h.beratGradeC : h.gradeCWeight;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Rincian Berat Per Grade',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green[800],
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              _buildGradeBreakdownRow('Grade A', gA, h.priceGradeA),
+              const Divider(height: 16),
+              _buildGradeBreakdownRow('Grade B', gB, h.priceGradeB),
+              const Divider(height: 16),
+              _buildGradeBreakdownRow('Grade C', gC, h.priceGradeC),
+              const Divider(height: 24, thickness: 1.5),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total Berat:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  Text(
+                    '${h.weight} Kg',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.green[800],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total Pendapatan:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  Text(
+                    Formatters.formatRupiah(h.totalPrice ?? 0.0),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.green[800],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[800],
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Tutup'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGradeBreakdownRow(String label, double weight, double? price) {
+    final hasPrice = price != null && price > 0;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+            if (hasPrice)
+              Text(
+                'Harga: ${Formatters.formatRupiah(price)}/Kg',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+          ],
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$weight Kg',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+            if (hasPrice)
+              Text(
+                Formatters.formatRupiah(weight * price),
+                style: TextStyle(color: Colors.green[700], fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

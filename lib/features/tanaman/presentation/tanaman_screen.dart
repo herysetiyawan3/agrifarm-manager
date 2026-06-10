@@ -15,15 +15,22 @@ class _TanamanScreenState extends ConsumerState<TanamanScreen> {
   final _nameController = TextEditingController();
   final _varietyController = TextEditingController();
   final _ageController = TextEditingController();
-  final _waterController = TextEditingController();
-  final _descriptionController = TextEditingController();
+
+  String _searchQuery = '';
+  String _selectedFilter = 'all'; // 'all', 'a-z', 'z-a', 'age_asc', 'age_desc'
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _varietyController.dispose();
+    _ageController.dispose();
+    super.dispose();
+  }
 
   void _resetForm() {
     _nameController.clear();
     _varietyController.clear();
     _ageController.clear();
-    _waterController.clear();
-    _descriptionController.clear();
   }
 
   void _showFormDialog([Tanaman? tanaman]) {
@@ -31,8 +38,6 @@ class _TanamanScreenState extends ConsumerState<TanamanScreen> {
       _nameController.text = tanaman.name;
       _varietyController.text = tanaman.variety;
       _ageController.text = tanaman.harvestAgeDays.toString();
-      _waterController.text = tanaman.waterRequirement;
-      _descriptionController.text = tanaman.description;
     } else {
       _resetForm();
     }
@@ -66,50 +71,51 @@ class _TanamanScreenState extends ConsumerState<TanamanScreen> {
                   const SizedBox(height: 20),
                   TextFormField(
                     controller: _nameController,
-                    decoration: const InputDecoration(labelText: 'Nama Tanaman (Komoditas)', prefixIcon: Icon(Icons.grass_outlined)),
-                    validator: (value) => value == null || value.isEmpty ? 'Nama wajib diisi' : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama Tanaman',
+                      prefixIcon: Icon(Icons.grass_outlined),
+                    ),
+                    validator: (value) => value == null || value.isEmpty ? 'Nama Tanaman wajib diisi' : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _varietyController,
-                    decoration: const InputDecoration(labelText: 'Varietas Tanaman (e.g. Hikapel, Action)', prefixIcon: Icon(Icons.category_outlined)),
+                    decoration: const InputDecoration(
+                      labelText: 'Varietas',
+                      prefixIcon: Icon(Icons.category_outlined),
+                    ),
                     validator: (value) => value == null || value.isEmpty ? 'Varietas wajib diisi' : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _ageController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Umur Panen (Hari Setelah Tanam)', prefixIcon: Icon(Icons.timer_outlined)),
+                    decoration: const InputDecoration(
+                      labelText: 'Umur Panen (HST)',
+                      prefixIcon: Icon(Icons.timer_outlined),
+                      suffixText: 'HST',
+                    ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) return 'Umur panen wajib diisi';
-                      if (int.tryParse(value) == null) return 'Harus angka';
+                      if (value == null || value.isEmpty) return 'Umur Panen wajib diisi';
+                      final val = int.tryParse(value);
+                      if (val == null) return 'Umur Panen hanya boleh angka';
+                      if (val < 1) return 'Umur Panen minimal 1 HST';
                       return null;
                     },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _waterController,
-                    decoration: const InputDecoration(labelText: 'Kebutuhan Air (e.g. Tinggi, Sedang, Rendah)', prefixIcon: Icon(Icons.water_drop_outlined)),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _descriptionController,
-                    maxLines: 2,
-                    decoration: const InputDecoration(labelText: 'Keterangan Lain', prefixIcon: Icon(Icons.info_outline)),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: () async {
                       if (!_formKey.currentState!.validate()) return;
-                      
+
                       final repo = ref.read(databaseRepositoryProvider);
                       final data = Tanaman(
                         id: tanaman?.id ?? '',
                         name: _nameController.text.trim(),
                         variety: _varietyController.text.trim(),
                         harvestAgeDays: int.tryParse(_ageController.text) ?? 60,
-                        waterRequirement: _waterController.text.trim(),
-                        description: _descriptionController.text.trim(),
+                        waterRequirement: tanaman?.waterRequirement ?? '',
+                        description: tanaman?.description ?? '',
                       );
 
                       if (tanaman == null) {
@@ -121,7 +127,10 @@ class _TanamanScreenState extends ConsumerState<TanamanScreen> {
                       if (mounted) {
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Data tanaman berhasil disimpan!'), backgroundColor: Colors.green),
+                          const SnackBar(
+                            content: Text('Data tanaman berhasil disimpan!'),
+                            backgroundColor: Colors.green,
+                          ),
                         );
                       }
                     },
@@ -226,35 +235,127 @@ class _TanamanScreenState extends ConsumerState<TanamanScreen> {
             );
           }
 
-          return ListView.builder(
-            itemCount: crops.length,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            itemBuilder: (context, index) {
-              final crop = crops[index];
-              return Card(
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.teal[100],
-                    child: Icon(Icons.grass, color: Colors.teal[800]),
-                  ),
-                  title: Text('${crop.name} - ${crop.variety}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('Estimasi Panen: ${crop.harvestAgeDays} HST | Kebutuhan Air: ${crop.waterRequirement}'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
-                        onPressed: () => _showFormDialog(crop),
+          final query = _searchQuery.toLowerCase();
+          final filteredCrops = crops.where((crop) {
+            if (query.isEmpty) return true;
+            return crop.name.toLowerCase().contains(query) ||
+                crop.variety.toLowerCase().contains(query);
+          }).toList();
+
+          switch (_selectedFilter) {
+            case 'a-z':
+              filteredCrops.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+              break;
+            case 'z-a':
+              filteredCrops.sort((a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
+              break;
+            case 'age_asc':
+              filteredCrops.sort((a, b) => a.harvestAgeDays.compareTo(b.harvestAgeDays));
+              break;
+            case 'age_desc':
+              filteredCrops.sort((a, b) => b.harvestAgeDays.compareTo(a.harvestAgeDays));
+              break;
+          }
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Cari tanaman atau varietas...',
+                          prefixIcon: Icon(Icons.search),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        onChanged: (val) {
+                          setState(() {
+                            _searchQuery = val;
+                          });
+                        },
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                        onPressed: () => _deleteTanaman(crop.id),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                    ],
-                  ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedFilter,
+                          icon: const Icon(Icons.filter_list),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                _selectedFilter = val;
+                              });
+                            }
+                          },
+                          items: const [
+                            DropdownMenuItem(value: 'all', child: Text('Semua Tanaman')),
+                            DropdownMenuItem(value: 'a-z', child: Text('Nama A-Z')),
+                            DropdownMenuItem(value: 'z-a', child: Text('Nama Z-A')),
+                            DropdownMenuItem(value: 'age_asc', child: Text('Umur Tercepat')),
+                            DropdownMenuItem(value: 'age_desc', child: Text('Umur Terlama')),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              );
-            },
+              ),
+              Expanded(
+                child: filteredCrops.isEmpty
+                    ? const Center(child: Text('Tidak ada tanaman yang cocok.'))
+                    : ListView.builder(
+                        itemCount: filteredCrops.length,
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        itemBuilder: (context, index) {
+                          final crop = filteredCrops[index];
+                          return Card(
+                            elevation: 2,
+                            shadowColor: Colors.black12,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              leading: CircleAvatar(
+                                radius: 22,
+                                backgroundColor: Colors.teal[50],
+                                child: Icon(Icons.grass, color: Colors.teal[800]),
+                              ),
+                              title: Text(crop.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4.0),
+                                child: Text(
+                                  'Varietas: ${crop.variety}\nUmur Panen: ${crop.harvestAgeDays} HST',
+                                  style: TextStyle(color: Colors.grey[600], height: 1.3),
+                                ),
+                              ),
+                              isThreeLine: true,
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                                    onPressed: () => _showFormDialog(crop),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                                    onPressed: () => _deleteTanaman(crop.id),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),

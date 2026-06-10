@@ -49,10 +49,13 @@ class DatabaseRepository {
   Stream<List<Stok>> watchStok() => _getStream(collection: 'inventory', builder: Stok.fromMap);
 
   // --- PEMBELIAN CRUD WITH AUTOMATIC INVENTORY STOCK IN ---
-  Stream<List<Pembelian>> watchPurchases() => _getStream(
+  Stream<List<Pembelian>> watchPurchases({
+    String orderByField = 'purchaseDate',
+    bool descending = true,
+  }) => _getStream(
         collection: 'purchases',
         builder: Pembelian.fromMap,
-        queryBuilder: (q) => q.orderBy('purchaseDate', descending: true),
+        queryBuilder: (q) => q.orderBy(orderByField, descending: descending),
       );
   
   Future<void> addPurchase(Pembelian purchase) async {
@@ -65,45 +68,40 @@ class DatabaseRepository {
       date: purchase.purchaseDate,
       seasonId: '', // General expense, can be linked manually
       category: purchase.category,
-      description: 'Beli ${purchase.itemName} (${purchase.quantity}x) di ${purchase.shop}',
+      description: 'Beli ${purchase.itemName} (${purchase.jumlah})',
       amount: purchase.totalPrice,
       photoUrl: purchase.receiptPhotoUrl,
     );
     await addExpense(expense);
 
     // 3. Update inventory (stock in)
-    if (['Bibit', 'Pupuk', 'Pestisida'].contains(purchase.category)) {
-      final query = await _db
-          .collection('inventory')
-          .where('itemName', isEqualTo: purchase.itemName)
-          .limit(1)
-          .get();
+    final query = await _db
+        .collection('inventory')
+        .where('itemName', isEqualTo: purchase.itemName)
+        .limit(1)
+        .get();
 
-      final unit = purchase.category == 'Pestisida'
-          ? 'Liter'
-          : purchase.category == 'Pupuk'
-              ? 'Kg'
-              : 'Pcs'; // Default Bibit / other is Pcs
+    final unit = extractUnit(purchase.jumlah);
 
-      if (query.docs.isEmpty) {
-        // Create new stock
-        final newStok = Stok(
-          id: '',
-          itemName: purchase.itemName,
-          category: purchase.category,
-          quantityIn: purchase.quantity,
-          quantityOut: 0.0,
-          unit: unit,
-        );
-        await _db.collection('inventory').add(newStok.toMap());
-      } else {
-        // Update existing stock in
-        final doc = query.docs.first;
-        final currentIn = (doc.data()['quantityIn'] as num).toDouble();
-        await _db.collection('inventory').doc(doc.id).update({
-          'quantityIn': currentIn + purchase.quantity,
-        });
-      }
+    if (query.docs.isEmpty) {
+      // Create new stock
+      final newStok = Stok(
+        id: '',
+        itemName: purchase.itemName,
+        category: purchase.category,
+        quantityIn: purchase.quantity,
+        quantityOut: 0.0,
+        unit: unit,
+      );
+      await _db.collection('inventory').add(newStok.toMap());
+    } else {
+      // Update existing stock in
+      final doc = query.docs.first;
+      final currentIn = (doc.data()['quantityIn'] as num).toDouble();
+      await _db.collection('inventory').doc(doc.id).update({
+        'quantityIn': currentIn + purchase.quantity,
+        'unit': unit,
+      });
     }
   }
 
@@ -111,24 +109,22 @@ class DatabaseRepository {
     await _db.collection('purchases').doc(id).delete();
     
     // Revert inventory stock in
-    if (['Bibit', 'Pupuk', 'Pestisida'].contains(purchase.category)) {
-      final query = await _db
-          .collection('inventory')
-          .where('itemName', isEqualTo: purchase.itemName)
-          .limit(1)
-          .get();
+    final query = await _db
+        .collection('inventory')
+        .where('itemName', isEqualTo: purchase.itemName)
+        .limit(1)
+        .get();
 
-      if (query.docs.isNotEmpty) {
-        final doc = query.docs.first;
-        final currentIn = (doc.data()['quantityIn'] as num).toDouble();
-        await _db.collection('inventory').doc(doc.id).update({
-          'quantityIn': (currentIn - purchase.quantity) >= 0 ? currentIn - purchase.quantity : 0.0,
-        });
-      }
+    if (query.docs.isNotEmpty) {
+      final doc = query.docs.first;
+      final currentIn = (doc.data()['quantityIn'] as num).toDouble();
+      await _db.collection('inventory').doc(doc.id).update({
+        'quantityIn': (currentIn - purchase.quantity) >= 0 ? currentIn - purchase.quantity : 0.0,
+      });
     }
 
     // Search and delete corresponding expense record
-    final query = await _db
+    final queryExpense = await _db
         .collection('expenses')
         .where('category', isEqualTo: purchase.category)
         .where('date', isEqualTo: Timestamp.fromDate(purchase.purchaseDate))
@@ -136,31 +132,29 @@ class DatabaseRepository {
         .limit(1)
         .get();
 
-    if (query.docs.isNotEmpty) {
-      await _db.collection('expenses').doc(query.docs.first.id).delete();
+    if (queryExpense.docs.isNotEmpty) {
+      await _db.collection('expenses').doc(queryExpense.docs.first.id).delete();
     }
   }
 
   Future<void> updatePurchase(Pembelian oldPurchase, Pembelian newPurchase) async {
     // 1. Revert old purchase inventory stock in
-    if (['Bibit', 'Pupuk', 'Pestisida'].contains(oldPurchase.category)) {
-      final query = await _db
-          .collection('inventory')
-          .where('itemName', isEqualTo: oldPurchase.itemName)
-          .limit(1)
-          .get();
+    final queryOld = await _db
+        .collection('inventory')
+        .where('itemName', isEqualTo: oldPurchase.itemName)
+        .limit(1)
+        .get();
 
-      if (query.docs.isNotEmpty) {
-        final doc = query.docs.first;
-        final currentIn = (doc.data()['quantityIn'] as num).toDouble();
-        await _db.collection('inventory').doc(doc.id).update({
-          'quantityIn': (currentIn - oldPurchase.quantity) >= 0 ? currentIn - oldPurchase.quantity : 0.0,
-        });
-      }
+    if (queryOld.docs.isNotEmpty) {
+      final doc = queryOld.docs.first;
+      final currentIn = (doc.data()['quantityIn'] as num).toDouble();
+      await _db.collection('inventory').doc(doc.id).update({
+        'quantityIn': (currentIn - oldPurchase.quantity) >= 0 ? currentIn - oldPurchase.quantity : 0.0,
+      });
     }
 
     // 2. Search and update corresponding expense record
-    final query = await _db
+    final queryExpense = await _db
         .collection('expenses')
         .where('category', isEqualTo: oldPurchase.category)
         .where('date', isEqualTo: Timestamp.fromDate(oldPurchase.purchaseDate))
@@ -168,11 +162,11 @@ class DatabaseRepository {
         .limit(1)
         .get();
 
-    if (query.docs.isNotEmpty) {
-      await _db.collection('expenses').doc(query.docs.first.id).update({
+    if (queryExpense.docs.isNotEmpty) {
+      await _db.collection('expenses').doc(queryExpense.docs.first.id).update({
         'category': newPurchase.category,
         'date': Timestamp.fromDate(newPurchase.purchaseDate),
-        'description': 'Beli ${newPurchase.itemName} (${newPurchase.quantity}x) di ${newPurchase.shop}',
+        'description': 'Beli ${newPurchase.itemName} (${newPurchase.jumlah})',
         'amount': newPurchase.totalPrice,
         'photoUrl': newPurchase.receiptPhotoUrl,
       });
@@ -182,36 +176,31 @@ class DatabaseRepository {
     await _db.collection('purchases').doc(newPurchase.id).update(newPurchase.toMap());
 
     // 4. Apply new purchase inventory stock in
-    if (['Bibit', 'Pupuk', 'Pestisida'].contains(newPurchase.category)) {
-      final query = await _db
-          .collection('inventory')
-          .where('itemName', isEqualTo: newPurchase.itemName)
-          .limit(1)
-          .get();
+    final queryNew = await _db
+        .collection('inventory')
+        .where('itemName', isEqualTo: newPurchase.itemName)
+        .limit(1)
+        .get();
 
-      final unit = newPurchase.category == 'Pestisida'
-          ? 'Liter'
-          : newPurchase.category == 'Pupuk'
-              ? 'Kg'
-              : 'Pcs';
+    final unit = extractUnit(newPurchase.jumlah);
 
-      if (query.docs.isEmpty) {
-        final newStok = Stok(
-          id: '',
-          itemName: newPurchase.itemName,
-          category: newPurchase.category,
-          quantityIn: newPurchase.quantity,
-          quantityOut: 0.0,
-          unit: unit,
-        );
-        await _db.collection('inventory').add(newStok.toMap());
-      } else {
-        final doc = query.docs.first;
-        final currentIn = (doc.data()['quantityIn'] as num).toDouble();
-        await _db.collection('inventory').doc(doc.id).update({
-          'quantityIn': currentIn + newPurchase.quantity,
-        });
-      }
+    if (queryNew.docs.isEmpty) {
+      final newStok = Stok(
+        id: '',
+        itemName: newPurchase.itemName,
+        category: newPurchase.category,
+        quantityIn: newPurchase.quantity,
+        quantityOut: 0.0,
+        unit: unit,
+      );
+      await _db.collection('inventory').add(newStok.toMap());
+    } else {
+      final doc = queryNew.docs.first;
+      final currentIn = (doc.data()['quantityIn'] as num).toDouble();
+      await _db.collection('inventory').doc(doc.id).update({
+        'quantityIn': currentIn + newPurchase.quantity,
+        'unit': unit,
+      });
     }
   }
 
@@ -457,15 +446,211 @@ class DatabaseRepository {
   Future<void> deleteBuyer(String id) => _db.collection('buyers').doc(id).delete();
 
   // --- PENJUALAN CRUD ---
-  Stream<List<Penjualan>> watchSales() => _getStream(
+  // Logika Filter Penjualan untuk Firestore Query
+  // Mengurutkan data berdasarkan field dan arah (descending/ascending)
+  Stream<List<Penjualan>> watchSales({
+    String orderByField = 'date',
+    bool descending = true,
+  }) => _getStream(
         collection: 'sales',
         builder: Penjualan.fromMap,
-        queryBuilder: (q) => q.orderBy('date', descending: true),
+        queryBuilder: (q) => q.orderBy(orderByField, descending: descending),
       );
   Future<void> addSale(Penjualan sale) => _db.collection('sales').add(sale.toMap());
   Future<void> updateSale(Penjualan sale) => _db.collection('sales').doc(sale.id).update(sale.toMap());
   Future<void> deleteSale(String id) => _db.collection('sales').doc(id).delete();
+
+  // --- AKTIVITAS LAPANGAN CRUD & INTEGRASI ---
+  Stream<List<AktivitasLapangan>> watchActivities(String seasonId) {
+    return _db
+        .collection('activities')
+        .where('seasonId', isEqualTo: seasonId)
+        .snapshots()
+        .map((snapshot) {
+      final list = snapshot.docs
+          .map((doc) => AktivitasLapangan.fromMap(doc.data(), doc.id))
+          .toList();
+      list.sort((a, b) => b.date.compareTo(a.date)); // Sort by date descending
+      return list;
+    });
+  }
+
+  Future<String> addActivity(AktivitasLapangan act) async {
+    final docRef = await _db.collection('activities').add(act.toMap());
+    return docRef.id;
+  }
+
+  Future<void> updateActivity(AktivitasLapangan act) => _db.collection('activities').doc(act.id).update(act.toMap());
+
+  Future<double> getUnitPriceForProduct(String productName) async {
+    final query = await _db
+        .collection('purchases')
+        .where('itemName', isEqualTo: productName)
+        .orderBy('purchaseDate', descending: true)
+        .limit(1)
+        .get();
+    if (query.docs.isNotEmpty) {
+      final data = query.docs.first.data();
+      final totalPrice = (data['totalPrice'] as num?)?.toDouble() ?? 0.0;
+      final quantity = (data['quantity'] as num?)?.toDouble() ?? 1.0;
+      return quantity > 0 ? (totalPrice / quantity) : 0.0;
+    }
+    return 0.0;
+  }
+
+  Future<void> executeActivity(AktivitasLapangan act) async {
+    // 1. Update activity status to 'Dilaksanakan'
+    final executedAct = AktivitasLapangan(
+      id: act.id,
+      seasonId: act.seasonId,
+      fieldIds: act.fieldIds,
+      activityType: act.activityType,
+      product: act.product,
+      quantity: act.quantity,
+      unit: act.unit,
+      date: act.date,
+      description: act.description,
+      status: 'Dilaksanakan',
+    );
+    await _db.collection('activities').doc(act.id).update(executedAct.toMap());
+
+    // 2. Reduce inventory stock
+    if (act.activityType != 'Tenaga Kerja' && act.product.isNotEmpty) {
+      final stockQuery = await _db
+          .collection('inventory')
+          .where('itemName', isEqualTo: act.product)
+          .limit(1)
+          .get();
+      if (stockQuery.docs.isNotEmpty) {
+        final doc = stockQuery.docs.first;
+        final currentOut = (doc.data()['quantityOut'] as num?)?.toDouble() ?? 0.0;
+        await _db.collection('inventory').doc(doc.id).update({
+          'quantityOut': currentOut + act.quantity,
+        });
+      } else {
+        // Create stock item
+        final newStok = Stok(
+          id: '',
+          itemName: act.product,
+          category: act.activityType == 'Pemupukan' ? 'Pupuk' : 'Pestisida',
+          quantityIn: 0.0,
+          quantityOut: act.quantity,
+          unit: act.unit,
+        );
+        await _db.collection('inventory').add(newStok.toMap());
+      }
+    }
+
+    // 3. Calculate cost
+    double cost = 0.0;
+    String category = 'Lainnya';
+    if (act.activityType == 'Tenaga Kerja') {
+      category = 'Upah';
+      // Find worker wage
+      final workerQuery = await _db
+          .collection('workers')
+          .where('name', isEqualTo: act.product)
+          .limit(1)
+          .get();
+      if (workerQuery.docs.isNotEmpty) {
+        final wage = (workerQuery.docs.first.data()['dailyWage'] as num?)?.toDouble() ?? 0.0;
+        cost = wage * act.quantity;
+      }
+    } else {
+      // Find product unit price from purchases
+      final unitPrice = await getUnitPriceForProduct(act.product);
+      cost = unitPrice * act.quantity;
+      
+      if (act.activityType == 'Pemupukan') {
+        category = 'Pupuk';
+      } else if (act.activityType == 'Penyemprotan') {
+        category = 'Pestisida';
+      } else if (act.activityType == 'Pemasangan Mulsa') {
+        category = 'Mulsa';
+      } else if (act.activityType == 'Pengairan') {
+        category = 'Air';
+      }
+    }
+
+    // 4. Add expense
+    final expense = Pengeluaran(
+      id: '',
+      date: act.date,
+      seasonId: act.seasonId,
+      category: category,
+      description: '${act.activityType} - ${act.product} (${act.quantity} ${act.unit})',
+      amount: cost,
+      photoUrl: '',
+    );
+    await addExpense(expense);
+  }
+
+  Future<void> deleteActivity(AktivitasLapangan act) async {
+    await _db.collection('activities').doc(act.id).delete();
+    
+    if (act.status == 'Dilaksanakan') {
+      // Revert stock
+      if (act.activityType != 'Tenaga Kerja' && act.product.isNotEmpty) {
+        final stockQuery = await _db
+            .collection('inventory')
+            .where('itemName', isEqualTo: act.product)
+            .limit(1)
+            .get();
+        if (stockQuery.docs.isNotEmpty) {
+          final doc = stockQuery.docs.first;
+          final currentOut = (doc.data()['quantityOut'] as num?)?.toDouble() ?? 0.0;
+          await _db.collection('inventory').doc(doc.id).update({
+            'quantityOut': (currentOut - act.quantity) >= 0 ? (currentOut - act.quantity) : 0.0,
+          });
+        }
+      }
+      
+      // Revert expense
+      double cost = 0.0;
+      String category = 'Lainnya';
+      if (act.activityType == 'Tenaga Kerja') {
+        category = 'Upah';
+        final workerQuery = await _db
+            .collection('workers')
+            .where('name', isEqualTo: act.product)
+            .limit(1)
+            .get();
+        if (workerQuery.docs.isNotEmpty) {
+          final wage = (workerQuery.docs.first.data()['dailyWage'] as num?)?.toDouble() ?? 0.0;
+          cost = wage * act.quantity;
+        }
+      } else {
+        final unitPrice = await getUnitPriceForProduct(act.product);
+        cost = unitPrice * act.quantity;
+        if (act.activityType == 'Pemupukan') {
+          category = 'Pupuk';
+        } else if (act.activityType == 'Penyemprotan') {
+          category = 'Pestisida';
+        } else if (act.activityType == 'Pemasangan Mulsa') {
+          category = 'Mulsa';
+        } else if (act.activityType == 'Pengairan') {
+          category = 'Air';
+        }
+      }
+
+      final expenseQuery = await _db
+          .collection('expenses')
+          .where('seasonId', isEqualTo: act.seasonId)
+          .where('category', isEqualTo: category)
+          .where('amount', isEqualTo: cost)
+          .limit(1)
+          .get();
+      if (expenseQuery.docs.isNotEmpty) {
+        await _db.collection('expenses').doc(expenseQuery.docs.first.id).delete();
+      }
+    }
+  }
 }
+
+// Watch Activities Stream
+final watchActivitiesProvider = StreamProvider.family<List<AktivitasLapangan>, String>((ref, seasonId) {
+  return ref.watch(databaseRepositoryProvider).watchActivities(seasonId);
+});
 
 // --- RIVERPOD PROVIDER ---
 final databaseRepositoryProvider = Provider<DatabaseRepository>((ref) {
@@ -493,8 +678,36 @@ final watchStokProvider = StreamProvider<List<Stok>>((ref) {
 });
 
 // Watch Purchases Stream
+final purchasesFilterProvider = StateProvider<String>((ref) => 'date_desc');
+
 final watchPurchasesProvider = StreamProvider<List<Pembelian>>((ref) {
-  return ref.watch(databaseRepositoryProvider).watchPurchases();
+  final filter = ref.watch(purchasesFilterProvider);
+  String orderByField = 'purchaseDate';
+  bool descending = true;
+
+  switch (filter) {
+    case 'date_desc':
+      orderByField = 'purchaseDate';
+      descending = true;
+      break;
+    case 'date_asc':
+      orderByField = 'purchaseDate';
+      descending = false;
+      break;
+    case 'price_desc':
+      orderByField = 'totalPrice';
+      descending = true;
+      break;
+    case 'price_asc':
+      orderByField = 'totalPrice';
+      descending = false;
+      break;
+  }
+
+  return ref.watch(databaseRepositoryProvider).watchPurchases(
+        orderByField: orderByField,
+        descending: descending,
+      );
 });
 
 // Watch Pests Stream
@@ -527,7 +740,65 @@ final watchBuyersProvider = StreamProvider<List<Tengkulak>>((ref) {
   return ref.watch(databaseRepositoryProvider).watchBuyers();
 });
 
+// Provider untuk menyimpan state filter pengurutan penjualan
+final salesFilterProvider = StateProvider<String>((ref) => 'date_desc');
+
 // Watch Sales Stream
 final watchSalesProvider = StreamProvider<List<Penjualan>>((ref) {
-  return ref.watch(databaseRepositoryProvider).watchSales();
+  final filter = ref.watch(salesFilterProvider);
+  String orderByField = 'date';
+  bool descending = true;
+
+  // Memetakan nilai filter pilihan pengguna ke parameter query Firestore
+  switch (filter) {
+    case 'date_desc': // Tanggal Terbaru
+      orderByField = 'date';
+      descending = true;
+      break;
+    case 'date_asc': // Tanggal Terlama
+      orderByField = 'date';
+      descending = false;
+      break;
+    case 'price_desc': // Nominal Penjualan Terbesar
+      orderByField = 'totalPrice';
+      descending = true;
+      break;
+    case 'price_asc': // Nominal Penjualan Terkecil
+      orderByField = 'totalPrice';
+      descending = false;
+      break;
+    case 'weight_desc': // Berat Terbesar
+      orderByField = 'weight';
+      descending = true;
+      break;
+    case 'weight_asc': // Berat Terkecil
+      orderByField = 'weight';
+      descending = false;
+      break;
+  }
+
+  return ref.watch(databaseRepositoryProvider).watchSales(
+        orderByField: orderByField,
+        descending: descending,
+      );
 });
+
+double parseQuantity(String text) {
+  final regExp = RegExp(r'^\s*([0-9]+(?:[\.,][0-9]+)?)');
+  final match = regExp.firstMatch(text);
+  if (match != null) {
+    final numStr = match.group(1)!.replaceAll(',', '.');
+    return double.tryParse(numStr) ?? 0.0;
+  }
+  return 0.0;
+}
+
+String extractUnit(String text) {
+  final regExp = RegExp(r'^\s*[0-9]+(?:[\.,][0-9]+)?\s*(.*)$');
+  final match = regExp.firstMatch(text);
+  if (match != null) {
+    final unitStr = match.group(1)!.trim();
+    return unitStr.isNotEmpty ? unitStr : 'Pcs';
+  }
+  return 'Pcs';
+}

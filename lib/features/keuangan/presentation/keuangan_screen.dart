@@ -213,6 +213,8 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
   @override
   Widget build(BuildContext context) {
     final expensesState = ref.watch(watchExpensesProvider);
+    final seasonsState = ref.watch(watchSeasonsProvider);
+    final seasons = seasonsState.value ?? [];
 
     return Scaffold(
       appBar: AppBar(title: const Text('Buku Kas Pengeluaran')),
@@ -257,6 +259,9 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   itemBuilder: (context, index) {
                     final exp = expenses[index];
+                    final isSeasonFinished = exp.seasonId.isNotEmpty &&
+                        seasons.any((s) => s.id == exp.seasonId && s.status == 'Selesai');
+
                     return Card(
                       child: ExpansionTile(
                         leading: CircleAvatar(
@@ -289,11 +294,33 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
                                   children: [
                                     IconButton(
                                       icon: const Icon(Icons.edit, color: Colors.blue),
-                                      onPressed: () => _showFormDialog(exp),
+                                      onPressed: () {
+                                        if (isSeasonFinished) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Tidak dapat mengubah biaya pada musim tanam yang sudah Selesai.'),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                        } else {
+                                          _showFormDialog(exp);
+                                        }
+                                      },
                                     ),
                                     IconButton(
                                       icon: const Icon(Icons.delete, color: Colors.red),
-                                      onPressed: () => _deleteExpense(exp.id),
+                                      onPressed: () {
+                                        if (isSeasonFinished) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Tidak dapat mengubah biaya pada musim tanam yang sudah Selesai.'),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                        } else {
+                                          _deleteExpense(exp.id);
+                                        }
+                                      },
                                     ),
                                   ],
                                 )
