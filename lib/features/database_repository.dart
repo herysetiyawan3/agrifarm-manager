@@ -372,7 +372,7 @@ class DatabaseRepository {
     final expense = Pengeluaran(
       id: '',
       date: act.date,
-      seasonId: '',
+      seasonId: act.seasonId,
       category: 'Upah',
       description: 'Upah kerja ${act.workerName} - ${act.activityType} (${act.daysWorked} hari)',
       amount: act.totalWage,
@@ -396,6 +396,7 @@ class DatabaseRepository {
     if (query.docs.isNotEmpty) {
       await _db.collection('expenses').doc(query.docs.first.id).update({
         'date': Timestamp.fromDate(newAct.date),
+        'seasonId': newAct.seasonId,
         'description': 'Upah kerja ${newAct.workerName} - ${newAct.activityType} (${newAct.daysWorked} hari)',
         'amount': newAct.totalWage,
       });

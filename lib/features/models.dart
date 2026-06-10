@@ -494,6 +494,10 @@ class AktivitasPekerja {
   final double dailyWage;
   final double daysWorked;
   final double totalWage;
+  final String seasonId;
+  final String fieldId;
+  final String description;
+  final String groupId;
 
   AktivitasPekerja({
     required this.id,
@@ -504,6 +508,10 @@ class AktivitasPekerja {
     required this.dailyWage,
     required this.daysWorked,
     required this.totalWage,
+    this.seasonId = '',
+    this.fieldId = '',
+    this.description = '',
+    this.groupId = '',
   });
 
   factory AktivitasPekerja.fromMap(Map<String, dynamic> map, String id) {
@@ -516,6 +524,10 @@ class AktivitasPekerja {
       dailyWage: (map['dailyWage'] as num?)?.toDouble() ?? 0.0,
       daysWorked: (map['daysWorked'] as num?)?.toDouble() ?? 0.0,
       totalWage: (map['totalWage'] as num?)?.toDouble() ?? 0.0,
+      seasonId: map['seasonId'] ?? '',
+      fieldId: map['fieldId'] ?? '',
+      description: map['description'] ?? '',
+      groupId: map['groupId'] ?? '',
     );
   }
 
@@ -528,6 +540,10 @@ class AktivitasPekerja {
       'dailyWage': dailyWage,
       'daysWorked': daysWorked,
       'totalWage': totalWage,
+      'seasonId': seasonId,
+      'fieldId': fieldId,
+      'description': description,
+      'groupId': groupId,
     };
   }
 }
